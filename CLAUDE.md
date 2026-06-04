@@ -1,4 +1,4 @@
-# Job Application Tracker
+# CLAUDE.md
 
 ## Running the App
 
