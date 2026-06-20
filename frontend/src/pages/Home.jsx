@@ -8,7 +8,7 @@ function daysSince(dateStr) {
   return Math.floor((Date.now() - new Date(dateStr)) / 86400000)
 }
 
-export default function Dashboard() {
+export default function Home() {
   const [apps, setApps] = useState([])
   const [todos, setTodos] = useState([])
 
@@ -34,7 +34,7 @@ export default function Dashboard() {
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-title">Dashboard</h1>
+        <h1 className="page-title">Home</h1>
         <p className="page-subtitle">Overview of your job search</p>
       </div>
 
@@ -73,7 +73,7 @@ export default function Dashboard() {
           </thead>
           <tbody>
             <tr><td><Link to="/new">New Application</Link></td><td>Log a completed job application</td></tr>
-            <tr><td><Link to="/in-progress">In Progress</Link></td><td>View and update active applications; US map view</td></tr>
+            <tr><td><Link to="/in-progress">Dashboard</Link></td><td>View and update active applications; US map view</td></tr>
             <tr><td><Link to="/todo">To-Do</Link></td><td>Save jobs to apply to later; AI URL extraction</td></tr>
             <tr><td><Link to="/analyze">Analyze</Link></td><td>Charts: by type, status, company, salary, timeline</td></tr>
             <tr><td><Link to="/scraper-log">Scraper Log</Link></td><td>AI extraction attempt history and stats</td></tr>

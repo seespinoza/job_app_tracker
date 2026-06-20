@@ -53,7 +53,7 @@ function emptyForm(config) {
     job_link: '',
     locations: [{ city: '', state: '' }],
     work_arrangement: '',
-    salary_min: '', salary_max: '', summary: '', raw_text: '', extracted_by_ai: false,
+    salary_min: '', salary_max: '', date_posted: '', summary: '', raw_text: '', extracted_by_ai: false,
   }
 }
 
@@ -211,6 +211,7 @@ export default function TodoApplications() {
           salary_max:       d.salary_max       ?? f.salary_max,
           job_link:         url.trim(),
           job_source:       d.job_source       || f.job_source,
+          date_posted:      d.date_posted      || f.date_posted,
           summary:          d.summary          || f.summary,
           raw_text:         d.raw_text         || f.raw_text,
           extracted_by_ai:  true,
@@ -244,6 +245,7 @@ export default function TodoApplications() {
           salary_min:       d.salary_min       ?? f.salary_min,
           salary_max:       d.salary_max       ?? f.salary_max,
           job_source:       d.job_source       || f.job_source,
+          date_posted:      d.date_posted      || f.date_posted,
           summary:          d.summary          || f.summary,
           extracted_by_ai:  true,
         }))
@@ -396,6 +398,10 @@ export default function TodoApplications() {
               <label>Salary Max ($)</label>
               <input type="number" value={form.salary_max} onChange={e => set('salary_max', e.target.value)} min="0" />
             </div>
+            <div className="form-group">
+              <label>Date Posted</label>
+              <input type="date" value={form.date_posted} onChange={e => set('date_posted', e.target.value)} />
+            </div>
           </div>
           <div className="form-group" style={{ marginBottom: '1rem' }}>
             <label>Summary</label>
@@ -422,7 +428,7 @@ export default function TodoApplications() {
             <thead>
               <tr>
                 <th>ID</th><th>Company</th><th>Title</th><th>Type</th>
-                <th>Location</th><th>Salary</th><th>Added</th><th>AI</th><th>Link</th>
+                <th>Location</th><th>Salary</th><th>Posted</th><th>Added</th><th>AI</th><th>Link</th>
                 <th>Apply</th><th>Del</th>
               </tr>
             </thead>
@@ -439,6 +445,7 @@ export default function TodoApplications() {
                       ? `$${(t.salary_min ?? '?').toLocaleString?.() ?? '?'}–$${(t.salary_max ?? '?').toLocaleString?.() ?? '?'}`
                       : '—'}
                   </td>
+                  <td className="text-muted">{t.date_posted || '—'}</td>
                   <td className="text-muted">{(t.created_at || '').split('T')[0] || (t.created_at || '').split(' ')[0] || '—'}</td>
                   <td>{t.extracted_by_ai ? '✨' : ''}</td>
                   <td>{t.job_link ? <a href={t.job_link} target="_blank" rel="noreferrer">↗</a> : <span className="text-muted">—</span>}</td>
@@ -457,7 +464,7 @@ export default function TodoApplications() {
                 </tr>
               ))}
               {todos.length === 0 && (
-                <tr><td colSpan="11" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No to-do items yet.</td></tr>
+                <tr><td colSpan="12" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No to-do items yet.</td></tr>
               )}
             </tbody>
           </table>

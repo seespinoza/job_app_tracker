@@ -16,7 +16,7 @@ Return ONLY a valid JSON object with exactly these fields (use null for missing 
   "company": "company name",
   "org_team": "team or department within company, or null",
   "job_title": "exact job title",
-  "job_type": "Data Scientist or ML Engineer or AI Engineer or Other",
+  "job_type": "Data Scientist or ML Engineer or AI Engineer or Data Engineer or Other",
   "locations": [{"city": "city name or null", "state": "2-letter US state abbreviation or null"}],
   "work_arrangement": "remote or hybrid or onsite or null",
   "salary_min": integer in USD or null,

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
+  AreaChart, Area, ReferenceLine,
 } from 'recharts'
 import { api } from '../api'
 import MetricCard from '../components/MetricCard'
@@ -149,6 +150,44 @@ export default function Analyze() {
       {data.weekly?.length > 0 && (
         <>
           <hr className="divider" />
+          <div className="card">
+            <div className="card-title">Weekly Application Rate</div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+              Applications submitted per week — each point is the Sunday ending that week
+            </p>
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={data.weekly} margin={{ top: 5, right: 20, bottom: 35, left: 0 }}>
+                <defs>
+                  <linearGradient id="rateGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="week" tick={{ fontSize: 10 }} angle={-30} textAnchor="end" interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                <Tooltip formatter={(v) => [v, 'Applications']} />
+                <ReferenceLine
+                  y={15}
+                  stroke="#22c55e"
+                  strokeDasharray="5 4"
+                  strokeWidth={1.5}
+                  label={{ value: 'Goal: 15/wk', position: 'insideTopRight', fontSize: 11, fill: '#22c55e' }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="count"
+                  name="Applications"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  fill="url(#rateGrad)"
+                  dot={{ r: 4, fill: '#3b82f6' }}
+                  activeDot={{ r: 6 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
           <div className="two-col">
             <div className="card">
               <div className="card-title">Weekly Applications</div>

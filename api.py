@@ -74,6 +74,7 @@ class TodoCreate(BaseModel):
     summary: Optional[str] = None
     raw_text: Optional[str] = None
     extracted_by_ai: bool = False
+    date_posted: Optional[str] = None
 
 
 class TodoApply(BaseModel):
@@ -292,7 +293,7 @@ def get_analytics():
     if not time_df.empty:
         time_df["date_applied"] = pd.to_datetime(time_df["date_applied"])
         time_df["week"] = time_df["date_applied"].dt.to_period("W").apply(
-            lambda r: r.start_time.strftime("%Y-%m-%d")
+            lambda r: r.end_time.strftime("%Y-%m-%d")
         )
         weekly = time_df.groupby("week").size().reset_index(name="count")
         weekly["cumulative"] = weekly["count"].cumsum()

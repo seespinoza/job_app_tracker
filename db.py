@@ -12,7 +12,7 @@ _MAX_BACKUPS = 10
 def backup_db():
     """Copy DB to ~/.job_tracker_backups/ after every write, keep last 10, make read-only."""
     os.makedirs(BACKUP_DIR, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     backup_path = os.path.join(BACKUP_DIR, f"job_tracker_{timestamp}.db")
     src = sqlite3.connect(DB_PATH)
     dst = sqlite3.connect(backup_path)
@@ -46,7 +46,7 @@ US_STATES = {
     "WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia",
 }
 
-JOB_TYPES = ["Data Scientist", "ML Engineer", "AI Engineer", "Other"]
+JOB_TYPES = ["Data Scientist", "ML Engineer", "AI Engineer", "Data Engineer", "Other"]
 JOB_SOURCES = ["Company Site", "LinkedIn", "Indeed", "Glassdoor", "Referral", "Handshake", "Other"]
 JOB_STATUSES = ["applied", "interviewing", "offer", "declined", "inactive"]
 
@@ -147,6 +147,12 @@ def init_db():
         pass
 
     # Add new columns if they don't exist (idempotent)
+    for col_def in ["date_posted TEXT"]:
+        try:
+            c.execute(f"ALTER TABLE todo_applications ADD COLUMN {col_def}")
+        except sqlite3.OperationalError:
+            pass
+
     for table in ['job_applications', 'todo_applications']:
         for col_def in [
             "locations TEXT",
@@ -295,8 +301,8 @@ def insert_todo_application(data: dict) -> int:
         INSERT INTO todo_applications
             (company, org_team, job_title, job_type, locations, work_arrangement,
              salary_min, salary_max, salary_currency, job_link, job_source,
-             notes, summary, raw_text, extracted_by_ai)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             notes, summary, raw_text, extracted_by_ai, date_posted)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         data.get("company"), data.get("org_team"), data.get("job_title"),
         data.get("job_type"), json.dumps(locations), data.get("work_arrangement"),
@@ -305,6 +311,7 @@ def insert_todo_application(data: dict) -> int:
         data.get("job_link"), data.get("job_source"), data.get("notes"),
         data.get("summary"), data.get("raw_text"),
         1 if data.get("extracted_by_ai") else 0,
+        data.get("date_posted") or None,
     ))
     conn.commit()
     new_id = cur.lastrowid
@@ -334,8 +341,8 @@ def move_todo_to_applied(todo_id: int, date_applied: str) -> int:
         INSERT INTO job_applications
             (company, org_team, job_title, job_type, locations, work_arrangement,
              salary_min, salary_max, salary_currency, job_link, job_source,
-             notes, summary, raw_text, date_applied, status)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             notes, summary, raw_text, date_applied, date_posted, status)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         d.get("company"), d.get("org_team"), d.get("job_title"),
         d.get("job_type"), d.get("locations", "[]"), d.get("work_arrangement"),
@@ -343,7 +350,7 @@ def move_todo_to_applied(todo_id: int, date_applied: str) -> int:
         d.get("salary_currency", "USD"),
         d.get("job_link"), d.get("job_source"), d.get("notes"),
         d.get("summary"), d.get("raw_text"),
-        date_applied, "applied",
+        date_applied, d.get("date_posted"), "applied",
     ))
     new_id = cur.lastrowid
     conn.execute("DELETE FROM todo_applications WHERE id=?", (todo_id,))

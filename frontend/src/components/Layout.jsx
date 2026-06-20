@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 
 const nav = [
-  { to: '/',            label: 'Dashboard',       icon: '◈' },
+  { to: '/',            label: 'Home',            icon: '◈' },
   { to: '/new',         label: 'New Application', icon: '+' },
-  { to: '/in-progress', label: 'In Progress',     icon: '◷' },
+  { to: '/in-progress', label: 'Dashboard',       icon: '◷' },
   { to: '/todo',        label: 'To-Do',           icon: '☐' },
   { to: '/analyze',     label: 'Analyze',         icon: '◎' },
   { to: '/scraper-log', label: 'Scraper Log',     icon: '⟳' },
