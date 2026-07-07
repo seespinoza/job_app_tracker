@@ -8,12 +8,14 @@ import Analyze         from './pages/Analyze'
 import ScraperLog      from './pages/ScraperLog'
 import Notebook        from './pages/Notebook'
 import Resumes         from './pages/Resumes'
+import JobInbox        from './pages/JobInbox'
 
 const ROUTES = [
   { path: '/',            component: Home },
   { path: '/in-progress', component: InProgress },
   { path: '/new',         component: NewApplication },
   { path: '/todo',        component: TodoApplications },
+  { path: '/job-inbox',   component: JobInbox },
   { path: '/analyze',     component: Analyze },
   { path: '/scraper-log', component: ScraperLog },
   { path: '/notebook',    component: Notebook },

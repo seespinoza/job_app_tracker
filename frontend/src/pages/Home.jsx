@@ -11,10 +11,12 @@ function daysSince(dateStr) {
 export default function Home() {
   const [apps, setApps] = useState([])
   const [todos, setTodos] = useState([])
+  const [followups, setFollowups] = useState([])
 
   useEffect(() => {
     api.applications().then(setApps).catch(console.error)
     api.todos().then(setTodos).catch(console.error)
+    api.upcomingFollowups().then(setFollowups).catch(console.error)
   }, [])
 
   const active = apps.filter(a => !['declined', 'inactive'].includes(a.status))
@@ -30,6 +32,10 @@ export default function Home() {
     const d = daysSince(a.updated_at)
     return d >= 30 && d < 60
   })
+
+  const todayStr = new Date().toISOString().split('T')[0]
+  const overdueFollowups = followups.filter(f => f.follow_up_date < todayStr)
+  const dueSoonFollowups = followups.filter(f => f.follow_up_date >= todayStr)
 
   return (
     <div>
@@ -62,6 +68,19 @@ export default function Home() {
         <div className="alert alert-warning" style={{ background: '#fefce8', borderColor: '#fde68a', color: '#854d0e' }}>
           <span>🟡</span>
           <div><strong>{stale30.length} app(s) stale 30–59 days:</strong> {stale30.map(a => a.company).join(', ')}</div>
+        </div>
+      )}
+
+      {overdueFollowups.length > 0 && (
+        <div className="alert alert-danger">
+          <span>📌</span>
+          <div><strong>{overdueFollowups.length} follow-up(s) overdue:</strong> {overdueFollowups.map(f => `${f.company} (${f.follow_up_date})`).join(', ')}</div>
+        </div>
+      )}
+      {dueSoonFollowups.length > 0 && (
+        <div className="alert alert-warning">
+          <span>📅</span>
+          <div><strong>{dueSoonFollowups.length} follow-up(s) due soon:</strong> {dueSoonFollowups.map(f => `${f.company} (${f.follow_up_date})`).join(', ')}</div>
         </div>
       )}
 

@@ -49,6 +49,8 @@ US_STATES = {
 JOB_TYPES = ["Data Scientist", "ML Engineer", "AI Engineer", "Data Engineer", "Other"]
 JOB_SOURCES = ["Company Site", "LinkedIn", "Indeed", "Glassdoor", "Referral", "Handshake", "Other"]
 JOB_STATUSES = ["applied", "interviewing", "offer", "declined", "inactive"]
+COMM_PLATFORMS = ["Email", "Phone", "LinkedIn", "Text", "Video Call", "Other"]
+COMM_DIRECTIONS = ["inbound", "outbound"]
 
 
 def get_conn():
@@ -129,6 +131,21 @@ def init_db():
     """)
 
     c.execute("""
+        CREATE TABLE IF NOT EXISTS communications (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            application_id INTEGER NOT NULL,
+            contact_name   TEXT,
+            platform       TEXT,
+            direction      TEXT,
+            comm_date      TEXT,
+            note           TEXT,
+            follow_up_date TEXT,
+            created_at     TEXT DEFAULT (datetime('now')),
+            updated_at     TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS resumes (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             name          TEXT NOT NULL,
@@ -164,6 +181,17 @@ def init_db():
                 c.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
             except sqlite3.OperationalError:
                 pass
+
+    # Headhunter lead fields — job_applications only (not todo_applications)
+    for col_def in [
+        "is_headhunter_lead INTEGER DEFAULT 0",
+        "recruiter_name TEXT",
+        "recruiter_contact TEXT",
+    ]:
+        try:
+            c.execute(f"ALTER TABLE job_applications ADD COLUMN {col_def}")
+        except sqlite3.OperationalError:
+            pass
 
     # Migrate existing city/state/remote → locations/work_arrangement
     for table in ['job_applications', 'todo_applications']:
@@ -216,8 +244,9 @@ def insert_job_application(data: dict) -> int:
         INSERT INTO job_applications
             (company, org_team, job_title, job_type, date_posted, date_applied,
              locations, work_arrangement, salary_min, salary_max, salary_currency,
-             job_link, job_source, status, notes, summary, raw_text)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             job_link, job_source, status, notes, summary, raw_text,
+             is_headhunter_lead, recruiter_name, recruiter_contact)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         data.get("company"), data.get("org_team"), data.get("job_title"),
         data.get("job_type"), data.get("date_posted"), data.get("date_applied"),
@@ -227,6 +256,7 @@ def insert_job_application(data: dict) -> int:
         data.get("job_link"), data.get("job_source"),
         data.get("status", "applied"), data.get("notes"),
         data.get("summary"), data.get("raw_text"),
+        data.get("is_headhunter_lead", False), data.get("recruiter_name"), data.get("recruiter_contact"),
     ))
     conn.commit()
     new_id = cur.lastrowid
@@ -237,6 +267,7 @@ def insert_job_application(data: dict) -> int:
 
 def delete_job_application(app_id: int):
     conn = get_conn()
+    conn.execute("DELETE FROM communications WHERE application_id=?", (app_id,))
     conn.execute("DELETE FROM job_applications WHERE id=?", (app_id,))
     conn.commit()
     conn.close()
@@ -264,6 +295,7 @@ def update_job_application(app_id: int, data: dict):
             salary_min=?, salary_max=?, salary_currency=?,
             job_link=?, job_source=?, status=?, notes=?,
             summary=?, raw_text=?,
+            is_headhunter_lead=?, recruiter_name=?, recruiter_contact=?,
             updated_at=datetime('now')
         WHERE id=?
     """, (
@@ -275,6 +307,7 @@ def update_job_application(app_id: int, data: dict):
         data.get("job_link"), data.get("job_source"),
         data.get("status"), data.get("notes"),
         data.get("summary"), data.get("raw_text"),
+        data.get("is_headhunter_lead", False), data.get("recruiter_name"), data.get("recruiter_contact"),
         app_id,
     ))
     conn.commit()
@@ -360,6 +393,20 @@ def move_todo_to_applied(todo_id: int, date_applied: str) -> int:
     return new_id
 
 
+# ── dedup helpers ────────────────────────────────────────────────────────────
+
+def get_all_tracked_urls() -> set:
+    """Return all job_link values from both job_applications and todo_applications."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT job_link FROM job_applications WHERE job_link IS NOT NULL "
+        "UNION "
+        "SELECT job_link FROM todo_applications WHERE job_link IS NOT NULL"
+    ).fetchall()
+    conn.close()
+    return {row["job_link"] for row in rows}
+
+
 # ── scraper_log ───────────────────────────────────────────────────────────────
 
 def insert_scraper_log(url: str, method: str, success: bool, latency_ms: int, error: str = None):
@@ -425,6 +472,57 @@ def delete_note(note_id: int):
     conn.execute("DELETE FROM notes WHERE id=?", (note_id,))
     conn.commit()
     conn.close()
+
+
+# ── communications ────────────────────────────────────────────────────────────
+
+def get_communications(application_id: int) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM communications WHERE application_id=? ORDER BY comm_date DESC, id DESC",
+        (application_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_communication(data: dict) -> int:
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO communications
+            (application_id, contact_name, platform, direction, comm_date, note, follow_up_date)
+        VALUES (?,?,?,?,?,?,?)
+    """, (
+        data.get("application_id"), data.get("contact_name"), data.get("platform"),
+        data.get("direction"), data.get("comm_date"), data.get("note"),
+        data.get("follow_up_date"),
+    ))
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def delete_communication(comm_id: int):
+    conn = get_conn()
+    conn.execute("DELETE FROM communications WHERE id=?", (comm_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_upcoming_followups() -> list:
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT c.id, c.application_id, c.follow_up_date, c.contact_name, c.platform,
+               j.company, j.job_title
+        FROM communications c
+        JOIN job_applications j ON j.id = c.application_id
+        WHERE c.follow_up_date IS NOT NULL AND c.follow_up_date != ''
+          AND date(c.follow_up_date) <= date('now', '+7 days')
+        ORDER BY c.follow_up_date ASC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # ── resumes ───────────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ function emptyForm(config) {
     locations: [{ city: '', state: '' }],
     work_arrangement: '',
     salary_min: '', salary_max: '', summary: '', raw_text: '',
+    is_headhunter_lead: false, recruiter_name: '', recruiter_contact: '',
   }
 }
 
@@ -205,6 +206,8 @@ export default function NewApplication() {
         date_posted: form.date_posted || null,
         date_applied: form.date_applied || null,
         work_arrangement: form.work_arrangement || null,
+        recruiter_name: form.is_headhunter_lead ? (form.recruiter_name || null) : null,
+        recruiter_contact: form.is_headhunter_lead ? (form.recruiter_contact || null) : null,
       })
       setSuccess(true)
       setForm(emptyForm(config))
@@ -318,6 +321,30 @@ export default function NewApplication() {
               <input type="number" value={form.salary_max} onChange={e => set('salary_max', e.target.value)} min="0" />
             </div>
           </div>
+
+          <div className="form-group" style={{ marginBottom: '1rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input
+                type="checkbox"
+                checked={form.is_headhunter_lead}
+                onChange={e => set('is_headhunter_lead', e.target.checked)}
+              />
+              This application came from a headhunter / recruiter outreach
+            </label>
+          </div>
+
+          {form.is_headhunter_lead && (
+            <div className="form-grid-2" style={{ marginBottom: '1rem' }}>
+              <div className="form-group">
+                <label>Recruiter Name</label>
+                <input type="text" value={form.recruiter_name} onChange={e => set('recruiter_name', e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Recruiter Contact (email/phone)</label>
+                <input type="text" value={form.recruiter_contact} onChange={e => set('recruiter_contact', e.target.value)} />
+              </div>
+            </div>
+          )}
 
           <div className="form-group" style={{ marginBottom: '1rem' }}>
             <label>Summary</label>

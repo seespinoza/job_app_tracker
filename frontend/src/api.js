@@ -21,6 +21,10 @@ export const api = {
   updateStatus: (id, status) => request('PATCH', `/applications/${id}/status`, { status }),
   updateApplication: (id, data) => request('PUT', `/applications/${id}`, data),
   deleteApplication: (id) => request('DELETE', `/applications/${id}`),
+  communications: (appId) => request('GET', `/applications/${appId}/communications`),
+  createCommunication: (appId, data) => request('POST', `/applications/${appId}/communications`, data),
+  deleteCommunication: (id) => request('DELETE', `/communications/${id}`),
+  upcomingFollowups: () => request('GET', '/communications/upcoming-followups'),
   todos: () => request('GET', '/todos'),
   createTodo: (data) => request('POST', '/todos', data),
   deleteTodo: (id) => request('DELETE', `/todos/${id}`),
@@ -38,4 +42,6 @@ export const api = {
   uploadResume: (formData) => uploadFile('/resumes', formData),
   deleteResume: (id) => request('DELETE', `/resumes/${id}`),
   resumeFileUrl: (id) => `${BASE}/resumes/${id}/file`,
+  inboxSaveTodo: (data) => request('POST', '/inbox/save-todo', data),
+  inboxSaveApplied: (data) => request('POST', '/inbox/save-applied', data),
 }

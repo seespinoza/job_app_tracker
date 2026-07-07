@@ -3,6 +3,7 @@ import { ComposableMap, Geographies, Geography } from 'react-simple-maps'
 import { scaleLinear } from 'd3-scale'
 import { api } from '../api'
 import MetricCard from '../components/MetricCard'
+import CommunicationsPanel from '../components/CommunicationsPanel'
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json'
 
@@ -256,6 +257,8 @@ function EditModal({ app, onSave, onCancel }) {
             </div>
           )}
         </div>
+
+        <CommunicationsPanel applicationId={app.id} />
 
         <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
           <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>

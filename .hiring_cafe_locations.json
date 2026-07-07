@@ -1,0 +1,45 @@
+{
+  "Richmond, VA": {
+    "id": "Hhk1yZQBoEtHp_8UuMkY",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Richmond",
+        "short_name": "Richmond",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Virginia",
+        "short_name": "VA",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 37.55376,
+        "lon": -77.46026
+      }
+    },
+    "formatted_address": "Richmond, VA, US",
+    "population": 226610,
+    "workplace_types": [],
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  }
+}
