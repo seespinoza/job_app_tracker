@@ -9,7 +9,7 @@ const GEO_URL = 'https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json'
 
 const STATUS_OPTIONS = ['applied', 'interviewing', 'offer', 'declined', 'inactive']
 
-const JOB_TYPES = ['Data Scientist', 'ML Engineer', 'AI Engineer', 'Data Engineer', 'Other']
+const JOB_TYPES = ['Data Scientist', 'Data Science Engineer', 'ML Engineer', 'AI Engineer', 'Data Engineer', 'Analytics Engineer', 'GenAI/LLM Engineer', 'Other']
 const JOB_SOURCES = ['Company Site', 'LinkedIn', 'Indeed', 'Glassdoor', 'Referral', 'Handshake', 'Other']
 const WORK_ARRANGEMENTS = ['remote', 'hybrid', 'onsite']
 
@@ -94,8 +94,12 @@ function EditModal({ app, onSave, onCancel }) {
     job_source: app.job_source || '',
     status: app.status || 'applied',
     notes: app.notes || '',
+    summary: app.summary || '',
+    raw_text: app.raw_text || '',
   })
   const [saving, setSaving] = useState(false)
+  const [rescraping, setRescraping] = useState(false)
+  const [rescrapeError, setRescrapeError] = useState(null)
 
   function set(field, val) {
     setForm(f => ({ ...f, [field]: val }))
@@ -129,6 +133,39 @@ function EditModal({ app, onSave, onCancel }) {
       })
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleRescrape() {
+    if (!form.job_link) return
+    if (!window.confirm('Re-scrape this job link? This will overwrite the job details below with freshly extracted data.')) return
+    setRescraping(true)
+    setRescrapeError(null)
+    try {
+      const { data, error } = await api.extract(form.job_link)
+      if (error) {
+        setRescrapeError(error)
+        return
+      }
+      setForm(f => ({
+        ...f,
+        company: data.company || f.company,
+        org_team: data.org_team ?? f.org_team,
+        job_title: data.job_title || f.job_title,
+        job_type: data.job_type ?? f.job_type,
+        locations: data.locations?.length ? data.locations : f.locations,
+        work_arrangement: data.work_arrangement ?? f.work_arrangement,
+        salary_min: data.salary_min ?? f.salary_min,
+        salary_max: data.salary_max ?? f.salary_max,
+        salary_currency: data.salary_currency || f.salary_currency,
+        job_source: data.job_source ?? f.job_source,
+        summary: data.summary ?? f.summary,
+        raw_text: data.raw_text ?? f.raw_text,
+      }))
+    } catch (e) {
+      setRescrapeError(e.message)
+    } finally {
+      setRescraping(false)
     }
   }
 
@@ -203,7 +240,22 @@ function EditModal({ app, onSave, onCancel }) {
           </div>
           <div className="form-group">
             <label>Job Link</label>
-            <input type="url" value={form.job_link} onChange={e => set('job_link', e.target.value)} />
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+              <input type="url" value={form.job_link} onChange={e => set('job_link', e.target.value)} style={{ flex: 1 }} />
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={handleRescrape}
+                disabled={rescraping || !form.job_link}
+                title="Re-run the full extraction pipeline against this link"
+                style={{ padding: '0.3rem 0.5rem', fontSize: '0.75rem', flexShrink: 0, whiteSpace: 'nowrap' }}
+              >
+                {rescraping ? 'Rescraping…' : 'Rescrape ↻'}
+              </button>
+            </div>
+            {rescrapeError && (
+              <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '0.25rem' }}>{rescrapeError}</div>
+            )}
           </div>
           <div className="form-group">
             <label>Salary Min</label>
@@ -245,11 +297,11 @@ function EditModal({ app, onSave, onCancel }) {
             <textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={3} />
           </div>
 
-          {app.raw_text && (
+          {form.raw_text && (
             <div className="form-group full">
               <label>Full Job Description</label>
               <textarea
-                value={app.raw_text}
+                value={form.raw_text}
                 readOnly
                 rows={12}
                 style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-muted)', resize: 'vertical' }}

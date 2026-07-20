@@ -42,6 +42,11 @@ export const api = {
   uploadResume: (formData) => uploadFile('/resumes', formData),
   deleteResume: (id) => request('DELETE', `/resumes/${id}`),
   resumeFileUrl: (id) => `${BASE}/resumes/${id}/file`,
-  inboxSaveTodo: (data) => request('POST', '/inbox/save-todo', data),
-  inboxSaveApplied: (data) => request('POST', '/inbox/save-applied', data),
+  discoveryJobs: () => request('GET', '/discovery/jobs'),
+  discoveryRuns: () => request('GET', '/discovery/runs'),
+  discoveryLatestRun: () => request('GET', '/discovery/runs/latest'),
+  discoveryDismiss: (id) => request('POST', `/discovery/jobs/${id}/dismiss`),
+  discoverySetTags: (id, tags) => request('POST', `/discovery/jobs/${id}/tags`, { tags }),
+  discoverySaveTodo: (data) => request('POST', '/discovery/save-todo', data),
+  discoverySaveApplied: (data) => request('POST', '/discovery/save-applied', data),
 }

@@ -1,4 +1,298 @@
 {
+  "Jacksonville, FL": {
+    "id": "zRk1yZQBoEtHp_8Ur6zo",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Jacksonville",
+        "short_name": "Jacksonville",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Florida",
+        "short_name": "FL",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 30.33218,
+        "lon": -81.65565
+      }
+    },
+    "formatted_address": "Jacksonville, FL, US",
+    "population": 954614,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Charlotte, NC": {
+    "id": "QRk1yZQBoEtHp_8UuLsV",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Charlotte",
+        "short_name": "Charlotte",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "North Carolina",
+        "short_name": "NC",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 35.22709,
+        "lon": -80.84313
+      }
+    },
+    "formatted_address": "Charlotte, NC, US",
+    "population": 874579,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Raleigh/Durham, NC": {
+    "id": "fBk1yZQBoEtHp_8UuLwW",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Raleigh",
+        "short_name": "Raleigh",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "North Carolina",
+        "short_name": "NC",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 35.7721,
+        "lon": -78.63861
+      }
+    },
+    "formatted_address": "Raleigh, NC, US",
+    "population": 451066,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Winston-Salem, NC": {
+    "id": "Hhk1yZQBoEtHp_8UuL0W",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Winston-Salem",
+        "short_name": "Winston-Salem",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "North Carolina",
+        "short_name": "NC",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 36.09986,
+        "lon": -80.24422
+      }
+    },
+    "formatted_address": "Winston-Salem, NC, US",
+    "population": 241218,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Chapel Hill, NC": {
+    "id": "QBk1yZQBoEtHp_8UuLsV",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Chapel Hill",
+        "short_name": "Chapel Hill",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "North Carolina",
+        "short_name": "NC",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 35.9132,
+        "lon": -79.05584
+      }
+    },
+    "formatted_address": "Chapel Hill, NC, US",
+    "population": 59568,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Charleston, SC": {
+    "id": "SRk1yZQBoEtHp_8UuMEW",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Charleston",
+        "short_name": "Charleston",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "South Carolina",
+        "short_name": "SC",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 32.77632,
+        "lon": -79.93275
+      }
+    },
+    "formatted_address": "Charleston, SC, US",
+    "population": 132609,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Charlottesville, VA": {
+    "id": "Ihk1yZQBoEtHp_8UuMgX",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Charlottesville",
+        "short_name": "Charlottesville",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Virginia",
+        "short_name": "VA",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 38.02931,
+        "lon": -78.47668
+      }
+    },
+    "formatted_address": "Charlottesville, VA, US",
+    "population": 46597,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
   "Richmond, VA": {
     "id": "Hhk1yZQBoEtHp_8UuMkY",
     "types": [
@@ -35,7 +329,90 @@
     },
     "formatted_address": "Richmond, VA, US",
     "population": 226610,
-    "workplace_types": [],
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Nashville, TN": {
+    "id": "NBk1yZQBoEtHp_8UuMMX",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Nashville",
+        "short_name": "Nashville",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Tennessee",
+        "short_name": "TN",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 36.16589,
+        "lon": -86.78444
+      }
+    },
+    "formatted_address": "Nashville, TN, US",
+    "population": 689447,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Atlanta, GA": {
+    "id": "xhk1yZQBoEtHp_8Ur67o",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Atlanta",
+        "short_name": "Atlanta",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Georgia",
+        "short_name": "GA",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 33.749,
+        "lon": -84.38798
+      }
+    },
+    "formatted_address": "Atlanta, GA, US",
+    "population": 463878,
     "options": {
       "radius": 50,
       "radius_unit": "miles",

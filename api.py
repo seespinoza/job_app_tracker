@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
-import asyncio
 import math
 import os
 import uuid
@@ -14,6 +13,7 @@ import json
 import pandas as pd
 import db
 import scraper
+import discovery
 
 RESUME_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resumes")
 os.makedirs(RESUME_DIR, exist_ok=True)
@@ -111,6 +111,49 @@ class CommunicationCreate(BaseModel):
     comm_date: Optional[str] = None
     note: Optional[str] = None
     follow_up_date: Optional[str] = None
+
+
+class DiscoverySaveTodo(BaseModel):
+    discovered_job_id: Optional[int] = None
+    company: Optional[str] = None
+    org_team: Optional[str] = None
+    job_title: Optional[str] = None
+    job_type: Optional[str] = None
+    locations: list = []
+    work_arrangement: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    salary_currency: str = "USD"
+    job_link: Optional[str] = None
+    job_source: Optional[str] = None
+    summary: Optional[str] = None
+    raw_text: Optional[str] = None
+    date_posted: Optional[str] = None
+    extracted_by_ai: bool = True
+
+
+class DiscoveredJobTags(BaseModel):
+    tags: list[str] = []
+
+
+class DiscoverySaveApplied(BaseModel):
+    discovered_job_id: Optional[int] = None
+    company: Optional[str] = None
+    org_team: Optional[str] = None
+    job_title: Optional[str] = None
+    job_type: Optional[str] = None
+    locations: list = []
+    work_arrangement: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    salary_currency: str = "USD"
+    job_link: Optional[str] = None
+    job_source: Optional[str] = None
+    summary: Optional[str] = None
+    raw_text: Optional[str] = None
+    date_posted: Optional[str] = None
+    date_applied: Optional[str] = None
+    status: str = "applied"
 
 
 @app.get("/api/config")
@@ -301,126 +344,6 @@ def get_scraper_log():
     return df_to_records(df)
 
 
-class InboxSaveTodo(BaseModel):
-    company: Optional[str] = None
-    org_team: Optional[str] = None
-    job_title: Optional[str] = None
-    job_type: Optional[str] = None
-    locations: list = []
-    work_arrangement: Optional[str] = None
-    salary_min: Optional[int] = None
-    salary_max: Optional[int] = None
-    salary_currency: str = "USD"
-    job_link: Optional[str] = None
-    job_source: Optional[str] = None
-    summary: Optional[str] = None
-    raw_text: Optional[str] = None
-    date_posted: Optional[str] = None
-    extracted_by_ai: bool = True
-
-
-class InboxSaveApplied(BaseModel):
-    company: Optional[str] = None
-    org_team: Optional[str] = None
-    job_title: Optional[str] = None
-    job_type: Optional[str] = None
-    locations: list = []
-    work_arrangement: Optional[str] = None
-    salary_min: Optional[int] = None
-    salary_max: Optional[int] = None
-    salary_currency: str = "USD"
-    job_link: Optional[str] = None
-    job_source: Optional[str] = None
-    summary: Optional[str] = None
-    raw_text: Optional[str] = None
-    date_posted: Optional[str] = None
-    date_applied: Optional[str] = None
-    status: str = "applied"
-
-
-@app.get("/api/inbox/stream")
-async def stream_inbox():
-    async def _generate():
-        existing_urls = await asyncio.to_thread(db.get_all_tracked_urls)
-        seen: set[str] = set()
-
-        # Phase 1: resolve any missing location IDs (emits progress events)
-        def _resolve_locations():
-            return list(scraper.resolve_all_inbox_locations())
-
-        loc_results = await asyncio.to_thread(_resolve_locations)
-        for (loc_name, status) in loc_results:
-            if status == "failed":
-                yield f"data: {json.dumps({'type': 'location_warn', 'location': loc_name, 'message': 'Could not resolve location ID — results may be incomplete'})}\n\n"
-
-        # Phase 2: search + extract
-        combos = await asyncio.to_thread(scraper.get_inbox_combinations)
-        total = len(combos)
-        yield f"data: {json.dumps({'type': 'start', 'total': total})}\n\n"
-
-        for i, combo in enumerate(combos):
-            yield f"data: {json.dumps({'type': 'searching', 'label': combo['label'], 'n': i + 1, 'total': total})}\n\n"
-
-            try:
-                raw_jobs = await asyncio.to_thread(scraper.scrape_hiring_cafe_combo, combo)
-            except Exception as e:
-                yield f"data: {json.dumps({'type': 'search_error', 'label': combo['label'], 'error': str(e)})}\n\n"
-                continue
-
-            for raw_job in (raw_jobs or []):
-                native_url = (raw_job.get("native_url") or "").strip()
-                if not native_url:
-                    continue
-                if native_url in existing_urls or native_url in seen:
-                    continue
-                seen.add(native_url)
-
-                yield f"data: {json.dumps({'type': 'extracting', 'url': native_url})}\n\n"
-
-                try:
-                    data, error = await asyncio.to_thread(scraper.extract_job_from_url, native_url)
-                except Exception as e:
-                    error = str(e)
-                    data = {}
-
-                if error or not data:
-                    job_out = {
-                        "job_link": native_url,
-                        "job_source": "hiring.cafe",
-                        "extraction_error": error,
-                    }
-                else:
-                    job_out = data
-                    job_out["job_link"] = native_url
-                    job_out.setdefault("job_source", "hiring.cafe")
-
-                yield f"data: {json.dumps({'type': 'job', 'data': job_out})}\n\n"
-
-        yield f"data: {json.dumps({'type': 'done', 'found': len(seen)})}\n\n"
-
-    return StreamingResponse(
-        _generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-@app.post("/api/inbox/save-todo", status_code=201)
-def inbox_save_todo(body: InboxSaveTodo):
-    new_id = db.insert_todo_application(body.dict())
-    return {"id": new_id}
-
-
-@app.post("/api/inbox/save-applied", status_code=201)
-def inbox_save_applied(body: InboxSaveApplied):
-    new_id = db.insert_job_application(body.dict())
-    return {"id": new_id}
-
-
 def _state_counts(df: pd.DataFrame) -> dict:
     states = []
     for locs in df['locations']:
@@ -485,3 +408,71 @@ def get_analytics():
         result["salary"] = None
 
     return result
+
+
+@app.get("/api/discovery/stream")
+def discovery_stream():
+    def _generate():
+        for event in discovery.run_discovery():
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/api/discovery/jobs")
+def list_discovered_jobs():
+    df = db.get_discovered_jobs()
+    return df_to_records(df)
+
+
+@app.get("/api/discovery/runs")
+def list_discovery_runs():
+    return db.get_scrape_runs()
+
+
+@app.get("/api/discovery/runs/latest")
+def latest_discovery_run():
+    return db.get_latest_scrape_run() or {}
+
+
+@app.post("/api/discovery/jobs/{job_id}/dismiss")
+def dismiss_discovered_job(job_id: int):
+    db.dismiss_discovered_job(job_id)
+    return {"ok": True}
+
+
+@app.post("/api/discovery/jobs/{job_id}/tags")
+def set_discovered_job_tags(job_id: int, body: DiscoveredJobTags):
+    tags = sorted({t.strip() for t in body.tags if t.strip()})
+    db.update_discovered_job_tags(job_id, tags)
+    return {"ok": True, "tags": tags}
+
+
+@app.post("/api/discovery/save-todo", status_code=201)
+def discovery_save_todo(body: DiscoverySaveTodo):
+    data = body.dict()
+    discovered_job_id = data.pop("discovered_job_id", None)
+    data = scraper.rescrape_preserving_date_posted(data)
+    new_id = db.insert_todo_application(data)
+    if discovered_job_id:
+        db.dismiss_discovered_job(discovered_job_id)
+    return {"id": new_id}
+
+
+@app.post("/api/discovery/save-applied", status_code=201)
+def discovery_save_applied(body: DiscoverySaveApplied):
+    data = body.dict()
+    discovered_job_id = data.pop("discovered_job_id", None)
+    data = scraper.rescrape_preserving_date_posted(data)
+    new_id = db.insert_job_application(data)
+    if discovered_job_id:
+        db.dismiss_discovered_job(discovered_job_id)
+    return {"id": new_id}

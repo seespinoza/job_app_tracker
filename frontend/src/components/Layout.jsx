@@ -6,7 +6,7 @@ const nav = [
   { to: '/new',         label: 'New Application', icon: '+' },
   { to: '/in-progress', label: 'Dashboard',       icon: '◷' },
   { to: '/todo',        label: 'To-Do',           icon: '☐' },
-  { to: '/job-inbox',   label: 'Job Inbox',       icon: '⇩' },
+  { to: '/discovery',   label: 'Job Discovery',   icon: '⇩' },
   { to: '/analyze',     label: 'Analyze',         icon: '◎' },
   { to: '/scraper-log', label: 'Scraper Log',     icon: '⟳' },
   { to: '/notebook',    label: 'Notebook',        icon: '✎' },

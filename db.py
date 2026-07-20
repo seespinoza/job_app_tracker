@@ -46,7 +46,10 @@ US_STATES = {
     "WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia",
 }
 
-JOB_TYPES = ["Data Scientist", "ML Engineer", "AI Engineer", "Data Engineer", "Other"]
+JOB_TYPES = [
+    "Data Scientist", "Data Science Engineer", "ML Engineer", "AI Engineer",
+    "Data Engineer", "Analytics Engineer", "GenAI/LLM Engineer", "Other",
+]
 JOB_SOURCES = ["Company Site", "LinkedIn", "Indeed", "Glassdoor", "Referral", "Handshake", "Other"]
 JOB_STATUSES = ["applied", "interviewing", "offer", "declined", "inactive"]
 COMM_PLATFORMS = ["Email", "Phone", "LinkedIn", "Text", "Video Call", "Other"]
@@ -156,6 +159,65 @@ def init_db():
             created_at    TEXT DEFAULT (datetime('now'))
         )
     """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS discovered_jobs (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            hc_id           TEXT UNIQUE NOT NULL,
+            company         TEXT,
+            job_title       TEXT,
+            job_type        TEXT,
+            locations       TEXT,
+            work_arrangement TEXT,
+            salary_min      INTEGER,
+            salary_max      INTEGER,
+            salary_currency TEXT DEFAULT 'USD',
+            seniority_level TEXT,
+            min_yoe         INTEGER,
+            job_category    TEXT,
+            job_link        TEXT,
+            job_source      TEXT,
+            summary         TEXT,
+            raw_text        TEXT,
+            date_posted     TEXT,
+            search_query    TEXT,
+            search_location TEXT,
+            phase2_status   TEXT DEFAULT 'pending',
+            phase2_error    TEXT,
+            discovered_at   TEXT DEFAULT (datetime('now')),
+            last_seen_at    TEXT DEFAULT (datetime('now')),
+            dismissed       INTEGER DEFAULT 0
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS scrape_runs (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at    TEXT DEFAULT (datetime('now')),
+            finished_at   TEXT,
+            status        TEXT DEFAULT 'running',
+            total_combos  INTEGER DEFAULT 0,
+            combos_done   INTEGER DEFAULT 0,
+            jobs_found    INTEGER DEFAULT 0,
+            jobs_new      INTEGER DEFAULT 0,
+            jobs_enriched INTEGER DEFAULT 0,
+            jobs_failed   INTEGER DEFAULT 0
+        )
+    """)
+
+    # run_id ties each discovered job to the batch (scrape_run) that first found it —
+    # set once at insert time, never reassigned, so a job belongs to exactly one batch.
+    try:
+        c.execute("ALTER TABLE discovered_jobs ADD COLUMN run_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
+
+    # User-defined tags (e.g. "eval") for filtering/organizing discovered jobs —
+    # stored as a JSON array string, same convention as locations.
+    try:
+        c.execute("ALTER TABLE discovered_jobs ADD COLUMN tags TEXT DEFAULT '[]'")
+    except sqlite3.OperationalError:
+        pass
 
     # Add job_type to resumes if not present
     try:
@@ -405,6 +467,160 @@ def get_all_tracked_urls() -> set:
     ).fetchall()
     conn.close()
     return {row["job_link"] for row in rows}
+
+
+# ── discovered_jobs / scrape_runs ───────────────────────────────────────────────
+
+def upsert_discovered_job(data: dict, run_id: int = None) -> int:
+    """
+    Insert a newly discovered job tagged with the batch (run_id) that found it,
+    or — if this hc_id already exists from an earlier batch — just refresh
+    last_seen_at. run_id is never reassigned on an existing row, so each job
+    belongs to exactly one batch and never appears duplicated across batches.
+    """
+    locations = data.get("locations") or []
+    conn = get_conn()
+    existing = conn.execute(
+        "SELECT id FROM discovered_jobs WHERE hc_id=?", (data["hc_id"],)
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE discovered_jobs SET last_seen_at=datetime('now') WHERE id=?",
+            (existing["id"],),
+        )
+        conn.commit()
+        new_id = existing["id"]
+    else:
+        cur = conn.execute("""
+            INSERT INTO discovered_jobs
+                (hc_id, company, job_title, job_type, locations, work_arrangement,
+                 salary_min, salary_max, salary_currency, seniority_level, min_yoe,
+                 job_category, job_link, job_source, summary, raw_text, date_posted,
+                 search_query, search_location, phase2_status, run_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            data["hc_id"], data.get("company"), data.get("job_title"), data.get("job_type"),
+            json.dumps(locations), data.get("work_arrangement"),
+            data.get("salary_min"), data.get("salary_max"), data.get("salary_currency", "USD"),
+            data.get("seniority_level"), data.get("min_yoe"), data.get("job_category"),
+            data.get("job_link"), data.get("job_source"), data.get("summary"), data.get("raw_text"),
+            data.get("date_posted"), data.get("search_query"), data.get("search_location"),
+            data.get("phase2_status", "pending"), run_id,
+        ))
+        conn.commit()
+        new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def update_discovered_job_enrichment(job_id: int, data: dict, phase2_status: str, phase2_error: str = None):
+    conn = get_conn()
+    conn.execute("""
+        UPDATE discovered_jobs SET
+            salary_min=COALESCE(?, salary_min), salary_max=COALESCE(?, salary_max),
+            summary=COALESCE(?, summary), raw_text=COALESCE(?, raw_text),
+            phase2_status=?, phase2_error=?
+        WHERE id=?
+    """, (
+        data.get("salary_min"), data.get("salary_max"), data.get("summary"), data.get("raw_text"),
+        phase2_status, phase2_error, job_id,
+    ))
+    conn.commit()
+    conn.close()
+
+
+def get_discovered_jobs(include_dismissed: bool = False) -> pd.DataFrame:
+    conn = get_conn()
+    where = "" if include_dismissed else "WHERE dismissed=0"
+    df = pd.read_sql_query(
+        f"SELECT * FROM discovered_jobs {where} ORDER BY discovered_at DESC", conn
+    )
+    conn.close()
+    if not df.empty:
+        df['locations'] = df['locations'].apply(lambda x: json.loads(x) if isinstance(x, str) else [])
+        df['tags'] = df['tags'].apply(lambda x: json.loads(x) if isinstance(x, str) else [])
+    return df
+
+
+def dismiss_discovered_job(job_id: int):
+    conn = get_conn()
+    conn.execute("UPDATE discovered_jobs SET dismissed=1 WHERE id=?", (job_id,))
+    conn.commit()
+    conn.close()
+
+
+def update_discovered_job_tags(job_id: int, tags: list[str]) -> None:
+    conn = get_conn()
+    conn.execute(
+        "UPDATE discovered_jobs SET tags=? WHERE id=?", (json.dumps(tags), job_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_discovered_job(job_id: int) -> dict | None:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM discovered_jobs WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    d['locations'] = json.loads(d['locations']) if d.get('locations') else []
+    d['tags'] = json.loads(d['tags']) if d.get('tags') else []
+    return d
+
+
+def create_scrape_run(total_combos: int) -> int:
+    conn = get_conn()
+    # A prior run stuck in 'running' means the server restarted/crashed mid-run —
+    # it'll never update itself again, so relabel it rather than let it linger forever.
+    conn.execute(
+        "UPDATE scrape_runs SET status='interrupted', finished_at=datetime('now') WHERE status='running'"
+    )
+    cur = conn.execute(
+        "INSERT INTO scrape_runs (total_combos, status) VALUES (?, 'running')",
+        (total_combos,),
+    )
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def update_scrape_run(run_id: int, **fields):
+    if not fields:
+        return
+    cols = ", ".join(f"{k}=?" for k in fields)
+    conn = get_conn()
+    conn.execute(
+        f"UPDATE scrape_runs SET {cols} WHERE id=?",
+        (*fields.values(), run_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def finish_scrape_run(run_id: int, status: str = "done"):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE scrape_runs SET status=?, finished_at=datetime('now') WHERE id=?",
+        (status, run_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_scrape_runs() -> list[dict]:
+    """All runs (batches), most recent first — for the batch history/filter."""
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM scrape_runs ORDER BY id DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_latest_scrape_run() -> dict | None:
+    runs = get_scrape_runs()
+    return runs[0] if runs else None
 
 
 # ── scraper_log ───────────────────────────────────────────────────────────────
