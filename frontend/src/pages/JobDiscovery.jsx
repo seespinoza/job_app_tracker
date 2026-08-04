@@ -19,7 +19,12 @@ const LOCATION_ORDER = [
 // labels); "Analytics Engineer" is left off by default but can still be toggled on.
 const DEFAULT_TRACKS = [
   'Data Scientist', 'Data Science Engineer', 'AI Engineer', 'ML Engineer', 'GenAI/LLM Engineer',
+  'Python Analyst',
 ]
+
+// Matches the tag applied by the background analyst-discovery script (db.py
+// update_discovered_job_tags) so both paths land in the same filterable bucket.
+const ANALYST_ML_TAG = 'analyst-python-ml'
 
 const RECENT_SEARCHES_KEY = 'jobDiscovery.recentSearches'
 const MAX_RECENT_SEARCHES = 8
@@ -81,9 +86,14 @@ function timeAgo(iso) {
   return `${Math.floor(h / 24)}d ago`
 }
 
+function runKindLabel(run) {
+  return (run.run_type || 'discovery') === 'analyst_ml' ? 'Analyst + Haiku filter' : 'Discovery'
+}
+
 function formatRunLabel(run) {
+  const kind = runKindLabel(run)
   const d = parseSqliteUTC(run.started_at)
-  if (!d) return `Batch #${run.id}`
+  if (!d) return `${kind} — Batch #${run.id}`
   const now = new Date()
   const startOfDay = (dt) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate())
   const dayDiff = Math.round((startOfDay(now) - startOfDay(d)) / 86400000)
@@ -93,7 +103,10 @@ function formatRunLabel(run) {
   else if (dayDiff === 1) dayStr = 'Yesterday'
   else dayStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' })
   const suffix = run.status !== 'done' ? ` (${run.status})` : ''
-  return `${dayStr}, ${timeStr} — ${run.jobs_new ?? 0} new${suffix}`
+  const countLabel = (run.run_type || 'discovery') === 'analyst_ml'
+    ? `${run.jobs_new ?? 0} matched`
+    : `${run.jobs_new ?? 0} new`
+  return `${kind} — ${dayStr}, ${timeStr} — ${countLabel}${suffix}`
 }
 
 function fmtDuration(ms) {
@@ -375,7 +388,8 @@ function PhaseBar({ label, n, total, active, color }) {
 export default function JobDiscovery() {
   const [jobs, setJobs] = useState([])
   const [runs, setRuns] = useState([]) // batch history, most recent first
-  const lastRun = runs[0] || null
+  const lastRun = runs.find(r => (r.run_type || 'discovery') === 'discovery') || null
+  const lastAnalystRun = runs.find(r => r.run_type === 'analyst_ml') || null
 
   const [status, setStatus] = useState('idle') // idle | running | done | error
   const [phase, setPhase] = useState(null)      // null | phase1 | phase2
@@ -400,7 +414,17 @@ export default function JobDiscovery() {
   const [recentSearches, setRecentSearches] = useState(loadRecentSearches)
   const [showRecent, setShowRecent] = useState(false)
 
+  const [analystTagStatus, setAnalystTagStatus] = useState('idle') // idle | running | done | error
+  const [analystTagError, setAnalystTagError] = useState('')
+  const [analystTagCount, setAnalystTagCount] = useState(0)
+  const [analystPhase, setAnalystPhase] = useState(null) // null | 'search' | 'classify'
+  const [analystSearch, setAnalystSearch] = useState({ n: 0, total: 0 })
+  const [analystClassify, setAnalystClassify] = useState({ n: 0, total: 0 })
+  const [analystCurrentLabel, setAnalystCurrentLabel] = useState('')
+  const [analystErrors, setAnalystErrors] = useState([])
+
   const esRef = useRef(null)
+  const analystEsRef = useRef(null)
 
   function commitSearch(q) {
     const trimmed = q.trim()
@@ -500,6 +524,84 @@ export default function JobDiscovery() {
     setStatus('idle'); setPhase(null); setCurrentLabel('')
   }
 
+  const startAnalystRun = useCallback(() => {
+    if (analystEsRef.current) analystEsRef.current.close()
+
+    setAnalystPhase(null)
+    setAnalystSearch({ n: 0, total: 0 }); setAnalystClassify({ n: 0, total: 0 })
+    setAnalystCurrentLabel('Starting…')
+    setAnalystErrors([])
+    setAnalystTagStatus('running'); setAnalystTagError(''); setAnalystTagCount(0)
+
+    const es = new EventSource('/api/discovery/analyst-stream')
+    analystEsRef.current = es
+
+    es.onmessage = (e) => {
+      const event = JSON.parse(e.data)
+      switch (event.type) {
+        case 'fatal_error':
+          setAnalystTagStatus('error'); setAnalystTagError(event.message); es.close()
+          break
+        case 'start':
+          setAnalystPhase('search'); setAnalystSearch({ n: 0, total: event.total })
+          break
+        case 'searching':
+          setAnalystCurrentLabel(`Searching ${event.label}…`)
+          setAnalystSearch(p => ({ ...p, n: event.n - 1 }))
+          break
+        case 'combo_done':
+          setAnalystSearch(p => ({ ...p, n: event.n }))
+          break
+        case 'combo_error':
+          setAnalystErrors(errs => [...errs, { label: event.label, error: event.error }])
+          break
+        case 'classify_start':
+          setAnalystPhase('classify'); setAnalystClassify({ n: 0, total: event.total })
+          setAnalystCurrentLabel(event.total > 0 ? 'Classifying with Haiku…' : 'No analyst postings found')
+          break
+        case 'classifying':
+          setAnalystCurrentLabel(`Classifying: ${event.job_title || '…'}`)
+          setAnalystClassify(p => ({ ...p, n: event.n }))
+          break
+        case 'classify_error':
+          setAnalystErrors(errs => [...errs, { label: event.job_title || `Job #${event.job_id}`, error: event.error }])
+          break
+        case 'matched':
+          setJobs(prev => {
+            const byId = new Map(prev.map(j => [j.id, j]))
+            byId.set(event.data.id, { ...byId.get(event.data.id), ...event.data })
+            return [...byId.values()]
+          })
+          break
+        case 'done':
+          setAnalystPhase(null); setAnalystCurrentLabel('')
+          if (event.jobs_matched > 0) {
+            setAnalystTagStatus('done'); setAnalystTagCount(event.jobs_matched)
+          } else {
+            setAnalystTagStatus('error')
+            setAnalystTagError(
+              event.candidates_found > 0
+                ? `Found ${event.candidates_found} analyst posting${event.candidates_found !== 1 ? 's' : ''}, but none explicitly mentioned Python + machine learning.`
+                : 'No analyst postings found across any location in the last 3 days.'
+            )
+          }
+          api.discoveryRuns().then(setRuns).catch(() => {})
+          es.close()
+          break
+      }
+    }
+
+    es.onerror = () => {
+      setAnalystTagStatus(s => (s === 'done' ? s : 'error'))
+      es.close()
+    }
+  }, [])
+
+  const stopAnalystRun = () => {
+    if (analystEsRef.current) { analystEsRef.current.close(); analystEsRef.current = null }
+    setAnalystTagStatus('idle'); setAnalystPhase(null); setAnalystCurrentLabel('')
+  }
+
   async function handleSaveTodo(job) {
     await api.discoverySaveTodo({ discovered_job_id: job.id, ...jobPayload(job), extracted_by_ai: true })
   }
@@ -517,6 +619,7 @@ export default function JobDiscovery() {
   }
 
   const isRunning = status === 'running'
+  const isAnalystRunning = analystTagStatus === 'running'
 
   const trackOptions = useMemo(
     () => [...new Set(jobs.map(j => j.job_type).filter(Boolean))].sort(),
@@ -571,10 +674,14 @@ export default function JobDiscovery() {
     return counts
   }, [facetFilteredJobs])
   const allTags = useMemo(() => [...tagCounts.keys()].sort(), [tagCounts])
-  const taggedJobs = useMemo(() => facetFilteredJobs.filter(j =>
-    (j.tags || []).length > 0 &&
-    (tagFilters.length === 0 || tagFilters.some(t => (j.tags || []).includes(t)))
-  ), [facetFilteredJobs, tagFilters])
+  const taggedJobs = useMemo(() => {
+    const arr = facetFilteredJobs.filter(j =>
+      (j.tags || []).length > 0 &&
+      (tagFilters.length === 0 || tagFilters.some(t => (j.tags || []).includes(t)))
+    )
+    if (seniorityDir) arr.sort((a, b) => compareSeniority(a, b, seniorityDir))
+    return arr
+  }, [facetFilteredJobs, tagFilters, seniorityDir])
 
   const failedJobs = jobs.filter(j => j.phase2_status === 'error')
 
@@ -593,7 +700,7 @@ export default function JobDiscovery() {
       <div className="page-header">
         <h1 className="page-title">Job Discovery</h1>
         <p className="page-subtitle">
-          Pulls DS / AI / ML postings from hiring.cafe across 6 job tracks × 11 locations (66 combinations),
+          Pulls DS / AI / ML postings from hiring.cafe across 7 job tracks × 11 locations (77 combinations),
           deduped against your tracker · posted in the last 3 days
         </p>
       </div>
@@ -611,12 +718,6 @@ export default function JobDiscovery() {
             </button>
           )}
 
-          {isRunning && (
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              Elapsed {fmtDuration(elapsedMs)} · ETA {fmtDuration(etaMs)} · {overallPct}% overall
-            </div>
-          )}
-
           {status === 'done' && runSummary && (
             <span style={{ fontSize: '0.85rem', color: '#16a34a', fontWeight: 600 }}>
               Done — {runSummary.jobs_new} new job{runSummary.jobs_new !== 1 ? 's' : ''} found
@@ -625,6 +726,12 @@ export default function JobDiscovery() {
 
           {status === 'error' && (
             <span style={{ fontSize: '0.85rem', color: '#dc2626' }}>{errorMessage || 'Stream error — try again'}</span>
+          )}
+
+          {isRunning && (
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Elapsed {fmtDuration(elapsedMs)} · ETA {fmtDuration(etaMs)} · {overallPct}% overall
+            </div>
           )}
 
           {status === 'idle' && lastRun && (
@@ -650,6 +757,60 @@ export default function JobDiscovery() {
           <div style={{ marginTop: '0.75rem' }}>
             {locationWarnings.map((w, i) => (
               <div key={i} style={{ fontSize: '0.78rem', color: '#b45309', padding: '0.15rem 0' }}>⚠ {w}</div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: isAnalystRunning || analystPhase ? '0.9rem' : 0 }}>
+          {!isAnalystRunning ? (
+            <button onClick={startAnalystRun} style={{
+              minWidth: 260, padding: '0.45rem 1rem', background: 'none', border: '1px solid #a855f7',
+              borderRadius: 6, cursor: 'pointer', color: '#a855f7', fontFamily: 'inherit', fontSize: '0.875rem',
+            }}>
+              Search & Tag Analyst Jobs (Python + ML)
+            </button>
+          ) : (
+            <button onClick={stopAnalystRun}
+              style={{ minWidth: 260, padding: '0.45rem 1rem', background: 'none', border: '1px solid #dc2626', borderRadius: 6, cursor: 'pointer', color: '#dc2626', fontFamily: 'inherit', fontSize: '0.875rem' }}>
+              Stop
+            </button>
+          )}
+
+          {analystTagStatus === 'error' && (
+            <span style={{ fontSize: '0.78rem', color: '#dc2626' }}>{analystTagError}</span>
+          )}
+
+          {analystTagStatus === 'done' && (
+            <span style={{ fontSize: '0.78rem', color: '#16a34a' }}>
+              Tagged {analystTagCount} job{analystTagCount !== 1 ? 's' : ''} as "{ANALYST_ML_TAG}" — filter via the Tagged view
+            </span>
+          )}
+
+          {analystTagStatus === 'idle' && lastAnalystRun && (
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Last analyst run {timeAgo(lastAnalystRun.finished_at || lastAnalystRun.started_at)} · {lastAnalystRun.jobs_new ?? 0} matched
+            </span>
+          )}
+        </div>
+
+        {(isAnalystRunning || analystPhase) && (
+          <>
+            <div className="combo-current" key={analystCurrentLabel} style={{ fontSize: '0.82rem', marginBottom: '0.6rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {analystCurrentLabel}
+            </div>
+            <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
+              <PhaseBar label="Search · hiring.cafe" n={analystSearch.n} total={analystSearch.total} active={analystPhase === 'search'} color="#2563eb" />
+              <PhaseBar label="Classify · Haiku" n={analystClassify.n} total={analystClassify.total} active={analystPhase === 'classify'} color="#a855f7" />
+            </div>
+          </>
+        )}
+
+        {analystErrors.length > 0 && (
+          <div style={{ marginTop: '0.75rem' }}>
+            {analystErrors.map((e, i) => (
+              <div key={i} style={{ fontSize: '0.78rem', color: '#b45309', padding: '0.15rem 0' }}>⚠ {e.label}: {e.error}</div>
             ))}
           </div>
         )}
@@ -823,6 +984,27 @@ export default function JobDiscovery() {
                 >
                   Clear
                 </button>
+              )}
+            </div>
+          )}
+
+          {jobs.length > 0 && (
+            <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <select value={locationFilter} onChange={e => setLocationFilter(e.target.value)} style={{ width: 'auto' }}>
+                <option value="">All locations</option>
+                {locationOptions.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              <button
+                className={`tab-pill${seniorityDir ? ' active' : ''}`}
+                onClick={() => setSeniorityDir(d => d === null ? 'asc' : d === 'asc' ? 'desc' : null)}
+              >
+                Seniority {seniorityDir === 'asc' ? '↑ Junior first' : seniorityDir === 'desc' ? '↓ Senior first' : '(unsorted)'}
+              </button>
+              {runs.length > 0 && (
+                <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} style={{ width: 'auto' }}>
+                  <option value="">All batches</option>
+                  {runs.map(r => <option key={r.id} value={r.id}>{formatRunLabel(r)}</option>)}
+                </select>
               )}
             </div>
           )}

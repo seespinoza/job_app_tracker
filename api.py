@@ -456,6 +456,23 @@ def set_discovered_job_tags(job_id: int, body: DiscoveredJobTags):
     return {"ok": True, "tags": tags}
 
 
+@app.get("/api/discovery/analyst-stream")
+def discovery_analyst_stream():
+    def _generate():
+        for event in discovery.run_analyst_discovery():
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.post("/api/discovery/save-todo", status_code=201)
 def discovery_save_todo(body: DiscoverySaveTodo):
     data = body.dict()

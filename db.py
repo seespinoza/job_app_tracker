@@ -212,6 +212,14 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Distinguishes a normal 7-track/11-location discovery batch from an
+    # analyst-title + Haiku Python/ML filtering batch, so the batch picker
+    # can label (and independently track "stuck running") each kind.
+    try:
+        c.execute("ALTER TABLE scrape_runs ADD COLUMN run_type TEXT DEFAULT 'discovery'")
+    except sqlite3.OperationalError:
+        pass
+
     # User-defined tags (e.g. "eval") for filtering/organizing discovered jobs —
     # stored as a JSON array string, same convention as locations.
     try:
@@ -570,16 +578,20 @@ def get_discovered_job(job_id: int) -> dict | None:
     return d
 
 
-def create_scrape_run(total_combos: int) -> int:
+def create_scrape_run(total_combos: int, run_type: str = "discovery") -> int:
     conn = get_conn()
     # A prior run stuck in 'running' means the server restarted/crashed mid-run —
     # it'll never update itself again, so relabel it rather than let it linger forever.
+    # Scoped to the same run_type so an analyst-search run starting up doesn't
+    # stomp on a genuinely still-running full discovery batch, or vice versa.
     conn.execute(
-        "UPDATE scrape_runs SET status='interrupted', finished_at=datetime('now') WHERE status='running'"
+        "UPDATE scrape_runs SET status='interrupted', finished_at=datetime('now') "
+        "WHERE status='running' AND run_type=?",
+        (run_type,),
     )
     cur = conn.execute(
-        "INSERT INTO scrape_runs (total_combos, status) VALUES (?, 'running')",
-        (total_combos,),
+        "INSERT INTO scrape_runs (total_combos, status, run_type) VALUES (?, 'running', ?)",
+        (total_combos, run_type),
     )
     conn.commit()
     new_id = cur.lastrowid

@@ -115,6 +115,51 @@ def _parse_with_haiku(text: str) -> dict:
     return _validate_extracted(result)
 
 
+ANALYST_FILTER_PROMPT = """\
+You are screening a single "Analyst" job posting. Decide whether its description \
+explicitly mentions BOTH:
+1. Python (as a programming language/skill), AND
+2. machine learning (or ML) as a skill, responsibility, or requirement.
+
+Only answer yes if both are clearly present in the text — do not infer or guess \
+from the job title alone.
+
+Respond with ONLY one word: "yes" or "no".
+
+Job title: {job_title}
+Description:
+{text}
+"""
+
+
+def classify_analyst_job(job: dict) -> tuple[bool, float]:
+    """
+    Single Haiku call classifying one job: does its description mention both
+    Python and machine learning? Returns (is_match, latency_seconds).
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
+
+    text = (job.get("raw_text") or job.get("summary") or "").strip()[:1200]
+    prompt = ANALYST_FILTER_PROMPT.format(
+        job_title=job.get("job_title") or "Unknown",
+        text=text or "(no description available)",
+    )
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    start = time.time()
+    msg = client.messages.create(
+        model=HAIKU_MODEL,
+        max_tokens=8,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    latency = time.time() - start
+    answer = msg.content[0].text.strip().lower()
+    return answer.startswith("y"), latency
+
+
 def _log(url: str, method: str, success: bool, latency_ms: int, error: str = None):
     try:
         import sys
