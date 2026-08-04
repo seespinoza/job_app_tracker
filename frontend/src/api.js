@@ -4,7 +4,14 @@ async function request(method, path, body = null) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } }
   if (body) opts.body = JSON.stringify(body)
   const res = await fetch(BASE + path, opts)
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`)
+  if (!res.ok) {
+    // FastAPI's HTTPException responses are {"detail": "..."} — surface that
+    // text when present (e.g. duplicate-label / bad-prompt-template messages)
+    // instead of just the status code, so callers can show it to the user.
+    let detail = null
+    try { detail = (await res.json()).detail } catch { /* not JSON */ }
+    throw new Error(detail || `${method} ${path} → ${res.status}`)
+  }
   return res.json()
 }
 
@@ -49,4 +56,14 @@ export const api = {
   discoverySetTags: (id, tags) => request('POST', `/discovery/jobs/${id}/tags`, { tags }),
   discoverySaveTodo: (data) => request('POST', '/discovery/save-todo', data),
   discoverySaveApplied: (data) => request('POST', '/discovery/save-applied', data),
+  discoveryTracks: () => request('GET', '/discovery/tracks'),
+  addDiscoveryTrack: (label, query) => request('POST', '/discovery/tracks', { label, query }),
+  updateDiscoveryTrack: (id, patch) => request('PATCH', `/discovery/tracks/${id}`, patch),
+  deleteDiscoveryTrack: (id) => request('DELETE', `/discovery/tracks/${id}`),
+  discoveryLocations: () => request('GET', '/discovery/locations'),
+  addDiscoveryLocation: (label, search_term) => request('POST', '/discovery/locations', { label, search_term }),
+  updateDiscoveryLocation: (id, patch) => request('PATCH', `/discovery/locations/${id}`, patch),
+  deleteDiscoveryLocation: (id) => request('DELETE', `/discovery/locations/${id}`),
+  getAnalystConfig: () => request('GET', '/discovery/analyst-config'),
+  updateAnalystConfig: (patch) => request('PUT', '/discovery/analyst-config', patch),
 }

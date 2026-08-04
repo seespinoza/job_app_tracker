@@ -55,6 +55,50 @@ JOB_STATUSES = ["applied", "interviewing", "offer", "declined", "inactive"]
 COMM_PLATFORMS = ["Email", "Phone", "LinkedIn", "Text", "Video Call", "Other"]
 COMM_DIRECTIONS = ["inbound", "outbound"]
 
+# Seed values for discovery_job_tracks / discovery_locations / discovery_analyst_config —
+# only used to populate those tables the first time they're empty (fresh DB or upgrade
+# from a version that hardcoded these in discovery.py / hiring_cafe_client.py / scraper.py).
+# After seeding, the DB rows are the source of truth and these are never read again.
+_DEFAULT_JOB_TRACKS = [
+    ("Data Scientist",        "data scientist"),
+    ("Data Science Engineer", "data science engineer"),
+    ("AI Engineer",           "AI engineer"),
+    ("ML Engineer",           "ML engineer"),
+    ("Analytics Engineer",    "analytics engineer"),
+    ("GenAI/LLM Engineer",    "GenAI engineer"),
+    ("Python Analyst",        "python analyst"),
+]
+
+_DEFAULT_LOCATIONS = [
+    ("Charlotte, NC",       "Charlotte, NC"),
+    ("Raleigh/Durham, NC",  "Raleigh, NC"),
+    ("Winston-Salem, NC",   "Winston-Salem, NC"),
+    ("Chapel Hill, NC",     "Chapel Hill, NC"),
+    ("Charleston, SC",      "Charleston, SC"),
+    ("Charlottesville, VA", "Charlottesville, VA"),
+    ("Richmond, VA",        "Richmond, VA"),
+    ("Nashville, TN",       "Nashville, TN"),
+    ("Atlanta, GA",         "Atlanta, GA"),
+]
+
+_DEFAULT_ANALYST_TAG = "analyst-python-ml"
+_DEFAULT_ANALYST_SEARCH_QUERY = "analyst"
+_DEFAULT_ANALYST_PROMPT = """\
+You are screening a single "Analyst" job posting. Decide whether its description \
+explicitly mentions BOTH:
+1. Python (as a programming language/skill), AND
+2. machine learning (or ML) as a skill, responsibility, or requirement.
+
+Only answer yes if both are clearly present in the text — do not infer or guess \
+from the job title alone.
+
+Respond with ONLY one word: "yes" or "no".
+
+Job title: {job_title}
+Description:
+{text}
+"""
+
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
@@ -204,6 +248,58 @@ def init_db():
             jobs_failed   INTEGER DEFAULT 0
         )
     """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS discovery_job_tracks (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            label      TEXT UNIQUE NOT NULL,
+            query      TEXT NOT NULL,
+            enabled    INTEGER DEFAULT 1,
+            sort_order INTEGER,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS discovery_locations (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            label        TEXT UNIQUE NOT NULL,
+            search_term  TEXT NOT NULL,
+            enabled      INTEGER DEFAULT 1,
+            sort_order   INTEGER,
+            created_at   TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # Single-row (id=1) config for the "analyst" auto-tagging rule: the hiring.cafe
+    # free-text query that seeds candidates, the tag applied on a Haiku match, and
+    # the Haiku classification prompt itself (must contain {job_title} and {text}).
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS discovery_analyst_config (
+            id              INTEGER PRIMARY KEY CHECK (id = 1),
+            tag             TEXT NOT NULL,
+            search_query    TEXT NOT NULL,
+            prompt_template TEXT NOT NULL
+        )
+    """)
+
+    if c.execute("SELECT COUNT(*) FROM discovery_job_tracks").fetchone()[0] == 0:
+        c.executemany(
+            "INSERT INTO discovery_job_tracks (label, query, sort_order) VALUES (?, ?, ?)",
+            [(label, query, i) for i, (label, query) in enumerate(_DEFAULT_JOB_TRACKS)],
+        )
+
+    if c.execute("SELECT COUNT(*) FROM discovery_locations").fetchone()[0] == 0:
+        c.executemany(
+            "INSERT INTO discovery_locations (label, search_term, sort_order) VALUES (?, ?, ?)",
+            [(label, term, i) for i, (label, term) in enumerate(_DEFAULT_LOCATIONS)],
+        )
+
+    if c.execute("SELECT COUNT(*) FROM discovery_analyst_config").fetchone()[0] == 0:
+        c.execute(
+            "INSERT INTO discovery_analyst_config (id, tag, search_query, prompt_template) VALUES (1, ?, ?, ?)",
+            (_DEFAULT_ANALYST_TAG, _DEFAULT_ANALYST_SEARCH_QUERY, _DEFAULT_ANALYST_PROMPT),
+        )
 
     # run_id ties each discovered job to the batch (scrape_run) that first found it —
     # set once at insert time, never reassigned, so a job belongs to exactly one batch.
@@ -794,6 +890,151 @@ def delete_resume(resume_id: int) -> str | None:
     conn.commit()
     conn.close()
     return filename
+
+
+# ── discovery config (job tracks / locations / analyst tag rule) ──────────────
+
+def get_job_tracks(enabled_only: bool = False) -> list[dict]:
+    conn = get_conn()
+    where = "WHERE enabled=1" if enabled_only else ""
+    rows = conn.execute(
+        f"SELECT * FROM discovery_job_tracks {where} ORDER BY sort_order IS NULL, sort_order, id"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_job_track(label: str, query: str) -> int:
+    label, query = label.strip(), query.strip()
+    conn = get_conn()
+    try:
+        if conn.execute("SELECT id FROM discovery_job_tracks WHERE label=?", (label,)).fetchone():
+            raise ValueError(f'A job title "{label}" already exists')
+        next_order = conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM discovery_job_tracks").fetchone()[0]
+        cur = conn.execute(
+            "INSERT INTO discovery_job_tracks (label, query, sort_order) VALUES (?, ?, ?)",
+            (label, query, next_order),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def update_job_track(track_id: int, **fields) -> None:
+    if not fields:
+        return
+    conn = get_conn()
+    try:
+        if "label" in fields:
+            fields["label"] = fields["label"].strip()
+            dup = conn.execute(
+                "SELECT id FROM discovery_job_tracks WHERE label=? AND id!=?", (fields["label"], track_id)
+            ).fetchone()
+            if dup:
+                raise ValueError(f'A job title "{fields["label"]}" already exists')
+        cols = ", ".join(f"{k}=?" for k in fields)
+        conn.execute(f"UPDATE discovery_job_tracks SET {cols} WHERE id=?", (*fields.values(), track_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_job_track(track_id: int) -> None:
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM discovery_job_tracks WHERE id=?", (track_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_locations(enabled_only: bool = False) -> list[dict]:
+    conn = get_conn()
+    where = "WHERE enabled=1" if enabled_only else ""
+    rows = conn.execute(
+        f"SELECT * FROM discovery_locations {where} ORDER BY sort_order IS NULL, sort_order, id"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_location(label: str, search_term: str) -> int:
+    label, search_term = label.strip(), search_term.strip()
+    conn = get_conn()
+    try:
+        if conn.execute("SELECT id FROM discovery_locations WHERE label=?", (label,)).fetchone():
+            raise ValueError(f'A location "{label}" already exists')
+        next_order = conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM discovery_locations").fetchone()[0]
+        cur = conn.execute(
+            "INSERT INTO discovery_locations (label, search_term, sort_order) VALUES (?, ?, ?)",
+            (label, search_term, next_order),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def update_location(location_id: int, **fields) -> None:
+    if not fields:
+        return
+    conn = get_conn()
+    try:
+        if "label" in fields:
+            fields["label"] = fields["label"].strip()
+            dup = conn.execute(
+                "SELECT id FROM discovery_locations WHERE label=? AND id!=?", (fields["label"], location_id)
+            ).fetchone()
+            if dup:
+                raise ValueError(f'A location "{fields["label"]}" already exists')
+        cols = ", ".join(f"{k}=?" for k in fields)
+        conn.execute(f"UPDATE discovery_locations SET {cols} WHERE id=?", (*fields.values(), location_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_location(location_id: int) -> None:
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM discovery_locations WHERE id=?", (location_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+_ANALYST_PROMPT_PLACEHOLDERS = ["{job_title}", "{text}"]
+
+
+def get_analyst_config() -> dict:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM discovery_analyst_config WHERE id=1").fetchone()
+    conn.close()
+    return dict(row)
+
+
+def update_analyst_config(tag: str = None, search_query: str = None, prompt_template: str = None) -> dict:
+    fields = {}
+    if tag is not None:
+        fields["tag"] = tag.strip()
+    if search_query is not None:
+        fields["search_query"] = search_query.strip()
+    if prompt_template is not None:
+        missing = [p for p in _ANALYST_PROMPT_PLACEHOLDERS if p not in prompt_template]
+        if missing:
+            raise ValueError(f"prompt_template is missing required placeholder(s): {', '.join(missing)}")
+        fields["prompt_template"] = prompt_template
+    if not fields:
+        return get_analyst_config()
+    cols = ", ".join(f"{k}=?" for k in fields)
+    conn = get_conn()
+    try:
+        conn.execute(f"UPDATE discovery_analyst_config SET {cols} WHERE id=1", tuple(fields.values()))
+        conn.commit()
+    finally:
+        conn.close()
+    return get_analyst_config()
 
 
 init_db()

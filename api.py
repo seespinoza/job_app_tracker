@@ -14,6 +14,7 @@ import pandas as pd
 import db
 import scraper
 import discovery
+import hiring_cafe_client
 
 RESUME_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resumes")
 os.makedirs(RESUME_DIR, exist_ok=True)
@@ -134,6 +135,34 @@ class DiscoverySaveTodo(BaseModel):
 
 class DiscoveredJobTags(BaseModel):
     tags: list[str] = []
+
+
+class JobTrackCreate(BaseModel):
+    label: str
+    query: str
+
+
+class JobTrackUpdate(BaseModel):
+    label: Optional[str] = None
+    query: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class LocationCreate(BaseModel):
+    label: str
+    search_term: str
+
+
+class LocationUpdate(BaseModel):
+    label: Optional[str] = None
+    search_term: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class AnalystConfigUpdate(BaseModel):
+    tag: Optional[str] = None
+    search_query: Optional[str] = None
+    prompt_template: Optional[str] = None
 
 
 class DiscoverySaveApplied(BaseModel):
@@ -454,6 +483,112 @@ def set_discovered_job_tags(job_id: int, body: DiscoveredJobTags):
     tags = sorted({t.strip() for t in body.tags if t.strip()})
     db.update_discovered_job_tags(job_id, tags)
     return {"ok": True, "tags": tags}
+
+
+# ── discovery settings: job titles / locations / analyst tag rule ─────────────
+# Editable from the Discovery Settings panel on the Job Discovery page. These
+# drive discovery.get_discovery_combinations() and run_analyst_discovery() —
+# see discovery.py / hiring_cafe_client.py for how the DB rows are consumed.
+
+@app.get("/api/discovery/tracks")
+def list_job_tracks():
+    return db.get_job_tracks()
+
+
+@app.post("/api/discovery/tracks", status_code=201)
+def create_job_track(body: JobTrackCreate):
+    label, query = body.label.strip(), body.query.strip()
+    if not label or not query:
+        raise HTTPException(400, "label and query are required")
+    try:
+        new_id = db.add_job_track(label, query)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"id": new_id}
+
+
+@app.patch("/api/discovery/tracks/{track_id}")
+def edit_job_track(track_id: int, body: JobTrackUpdate):
+    fields = {k: v for k, v in body.dict(exclude_unset=True).items()}
+    if "label" in fields:
+        fields["label"] = fields["label"].strip()
+    if "query" in fields:
+        fields["query"] = fields["query"].strip()
+    if "enabled" in fields:
+        fields["enabled"] = int(fields["enabled"])
+    try:
+        db.update_job_track(track_id, **fields)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@app.delete("/api/discovery/tracks/{track_id}")
+def remove_job_track(track_id: int):
+    db.delete_job_track(track_id)
+    return {"ok": True}
+
+
+@app.get("/api/discovery/locations")
+def list_locations():
+    return db.get_locations()
+
+
+@app.post("/api/discovery/locations", status_code=201)
+def create_location(body: LocationCreate):
+    label, search_term = body.label.strip(), body.search_term.strip()
+    if not label or not search_term:
+        raise HTTPException(400, "label and search_term are required")
+    try:
+        new_id = db.add_location(label, search_term)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"id": new_id}
+
+
+@app.patch("/api/discovery/locations/{location_id}")
+def edit_location(location_id: int, body: LocationUpdate):
+    fields = {k: v for k, v in body.dict(exclude_unset=True).items()}
+    old_label = None
+    if "label" in fields:
+        fields["label"] = fields["label"].strip()
+        existing = next((r for r in db.get_locations() if r["id"] == location_id), None)
+        old_label = existing["label"] if existing else None
+    if "search_term" in fields:
+        fields["search_term"] = fields["search_term"].strip()
+    if "enabled" in fields:
+        fields["enabled"] = int(fields["enabled"])
+    try:
+        db.update_location(location_id, **fields)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if old_label and old_label != fields.get("label"):
+        hiring_cafe_client.forget_location(old_label)
+    return {"ok": True}
+
+
+@app.delete("/api/discovery/locations/{location_id}")
+def remove_location(location_id: int):
+    existing = next((r for r in db.get_locations() if r["id"] == location_id), None)
+    db.delete_location(location_id)
+    if existing:
+        hiring_cafe_client.forget_location(existing["label"])
+    return {"ok": True}
+
+
+@app.get("/api/discovery/analyst-config")
+def get_analyst_config():
+    return db.get_analyst_config()
+
+
+@app.put("/api/discovery/analyst-config")
+def put_analyst_config(body: AnalystConfigUpdate):
+    try:
+        return db.update_analyst_config(
+            tag=body.tag, search_query=body.search_query, prompt_template=body.prompt_template
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/discovery/analyst-stream")

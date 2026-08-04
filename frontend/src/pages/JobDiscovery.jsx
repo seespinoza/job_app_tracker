@@ -4,28 +4,6 @@ import MetricCard from '../components/MetricCard'
 
 const TODAY = new Date().toISOString().split('T')[0]
 
-// Mirrors hiring_cafe_client.LOCATIONS order (grouped by state), so the
-// filter dropdown doesn't scatter same-state cities via alphabetical sort.
-const LOCATION_ORDER = [
-  'Remote',
-  'Charlotte, NC', 'Raleigh/Durham, NC', 'Winston-Salem, NC', 'Chapel Hill, NC',
-  'Charleston, SC',
-  'Charlottesville, VA', 'Richmond, VA',
-  'Nashville, TN',
-  'Atlanta, GA',
-]
-
-// Job tracks selected by default when the page loads (mirrors discovery.JOB_TRACKS
-// labels); "Analytics Engineer" is left off by default but can still be toggled on.
-const DEFAULT_TRACKS = [
-  'Data Scientist', 'Data Science Engineer', 'AI Engineer', 'ML Engineer', 'GenAI/LLM Engineer',
-  'Python Analyst',
-]
-
-// Matches the tag applied by the background analyst-discovery script (db.py
-// update_discovered_job_tags) so both paths land in the same filterable bucket.
-const ANALYST_ML_TAG = 'analyst-python-ml'
-
 const RECENT_SEARCHES_KEY = 'jobDiscovery.recentSearches'
 const MAX_RECENT_SEARCHES = 8
 
@@ -385,6 +363,252 @@ function PhaseBar({ label, n, total, active, color }) {
   )
 }
 
+// Add/edit/remove rows sharing a (primary label, secondary text) shape — used for
+// both Job Titles (label, query) and Locations (label, search_term) in Discovery
+// Settings. `onUpdate`/`onDelete`/`onAdd` are expected to hit the backend and throw
+// on failure (e.g. duplicate label → 400), which this surfaces inline.
+function EditableConfigList({
+  items, itemLabel, primaryField, primaryPlaceholder, secondaryField, secondaryPlaceholder,
+  onAdd, onUpdate, onDelete,
+}) {
+  const [newPrimary, setNewPrimary] = useState('')
+  const [newSecondary, setNewSecondary] = useState('')
+  const [addError, setAddError] = useState('')
+  const [editingId, setEditingId] = useState(null)
+  const [editPrimary, setEditPrimary] = useState('')
+  const [editSecondary, setEditSecondary] = useState('')
+  const [editError, setEditError] = useState('')
+
+  async function handleAdd() {
+    const p = newPrimary.trim(), s = newSecondary.trim()
+    if (!p || !s) return
+    setAddError('')
+    try {
+      await onAdd(p, s)
+      setNewPrimary(''); setNewSecondary('')
+    } catch (e) {
+      setAddError(e.message)
+    }
+  }
+
+  function startEdit(item) {
+    setEditingId(item.id)
+    setEditPrimary(item[primaryField])
+    setEditSecondary(item[secondaryField])
+    setEditError('')
+  }
+
+  async function saveEdit(item) {
+    const p = editPrimary.trim(), s = editSecondary.trim()
+    if (!p || !s) return
+    try {
+      await onUpdate(item.id, { [primaryField]: p, [secondaryField]: s })
+      setEditingId(null)
+    } catch (e) {
+      setEditError(e.message)
+    }
+  }
+
+  async function toggleEnabled(item) {
+    try { await onUpdate(item.id, { enabled: !item.enabled }) } catch { /* ignore */ }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.75rem' }}>
+        {items.map(item => (
+          <div key={item.id} style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.6rem',
+            border: '1px solid var(--border)', borderRadius: 6, opacity: item.enabled ? 1 : 0.5,
+          }}>
+            <input
+              type="checkbox" checked={!!item.enabled} onChange={() => toggleEnabled(item)}
+              title={item.enabled ? 'Enabled — included in the next run' : 'Disabled — skipped on the next run'}
+            />
+            {editingId === item.id ? (
+              <>
+                <input value={editPrimary} onChange={e => setEditPrimary(e.target.value)} style={{ flex: 1, fontSize: '0.82rem' }} />
+                <input value={editSecondary} onChange={e => setEditSecondary(e.target.value)} style={{ flex: 1, fontSize: '0.82rem' }} />
+                <button onClick={() => saveEdit(item)} className="btn btn-primary" style={{ fontSize: '0.75rem', padding: '3px 10px' }}>Save</button>
+                <button
+                  onClick={() => setEditingId(null)}
+                  style={{ fontSize: '0.75rem', padding: '3px 10px', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 600 }}>{item[primaryField]}</span>
+                <span style={{ flex: 1, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{item[secondaryField]}</span>
+                <button
+                  onClick={() => startEdit(item)}
+                  style={{ fontSize: '0.75rem', padding: '3px 10px', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => onDelete(item.id)} title={`Remove ${itemLabel}`}
+                  style={{ fontSize: '0.75rem', padding: '3px 8px', background: 'none', border: '1px solid #dc2626', borderRadius: 4, cursor: 'pointer', color: '#dc2626' }}
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </div>
+        ))}
+        {editingId && editError && <div style={{ fontSize: '0.75rem', color: '#dc2626' }}>{editError}</div>}
+        {items.length === 0 && (
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>None yet — add one below.</div>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          placeholder={primaryPlaceholder} value={newPrimary} onChange={e => setNewPrimary(e.target.value)}
+          style={{ flex: 1, minWidth: 140, fontSize: '0.82rem' }}
+        />
+        <input
+          placeholder={secondaryPlaceholder} value={newSecondary} onChange={e => setNewSecondary(e.target.value)}
+          style={{ flex: 1, minWidth: 140, fontSize: '0.82rem' }}
+        />
+        <button onClick={handleAdd} className="btn btn-primary" style={{ fontSize: '0.78rem', padding: '4px 12px' }}>+ Add</button>
+      </div>
+      {addError && <div style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '0.3rem' }}>{addError}</div>}
+    </div>
+  )
+}
+
+function AnalystConfigForm({ config, onSave }) {
+  const [tag, setTag] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [prompt, setPrompt] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (!config) return
+    setTag(config.tag); setSearchQuery(config.search_query); setPrompt(config.prompt_template)
+  }, [config])
+
+  const dirty = !!config && (
+    tag !== config.tag || searchQuery !== config.search_query || prompt !== config.prompt_template
+  )
+
+  async function handleSave() {
+    setSaved(false)
+    if (!prompt.includes('{job_title}') || !prompt.includes('{text}')) {
+      setError('Prompt template must contain both {job_title} and {text} placeholders.')
+      return
+    }
+    setError('')
+    setSaving(true)
+    try {
+      await onSave({ tag: tag.trim(), search_query: searchQuery.trim(), prompt_template: prompt })
+      setSaved(true)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!config) return <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Loading…</div>
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+      <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+        Tag name
+        <input
+          value={tag} onChange={e => { setTag(e.target.value); setSaved(false); setError('') }}
+          style={{ display: 'block', width: '100%', marginTop: 2, fontSize: '0.85rem' }}
+        />
+      </label>
+      <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+        hiring.cafe search query (candidate source)
+        <input
+          value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setSaved(false); setError('') }}
+          style={{ display: 'block', width: '100%', marginTop: 2, fontSize: '0.85rem' }}
+        />
+      </label>
+      <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+        Haiku classification prompt — must include the literal placeholders <code>{'{job_title}'}</code> and <code>{'{text}'}</code>
+        <textarea
+          value={prompt} onChange={e => { setPrompt(e.target.value); setSaved(false); setError('') }} rows={10}
+          style={{ display: 'block', width: '100%', marginTop: 2, fontSize: '0.8rem', fontFamily: 'monospace' }}
+        />
+      </label>
+      <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+        <button onClick={handleSave} disabled={saving || !dirty} className="btn btn-primary" style={{ fontSize: '0.8rem', padding: '5px 14px' }}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        {saved && !dirty && <span style={{ fontSize: '0.75rem', color: '#16a34a' }}>Saved</span>}
+        {error && <span style={{ fontSize: '0.78rem', color: '#dc2626' }}>{error}</span>}
+      </div>
+    </div>
+  )
+}
+
+function DiscoverySettingsPanel({
+  tracks, locations, analystConfig,
+  onAddTrack, onUpdateTrack, onDeleteTrack,
+  onAddLocation, onUpdateLocation, onDeleteLocation,
+  onSaveAnalystConfig,
+}) {
+  const enabledTracks = tracks.filter(t => t.enabled).length
+  const enabledLocations = locations.filter(l => l.enabled).length + 1 // +1 for the built-in Remote
+  const combos = enabledTracks * enabledLocations
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <div className="card" style={{ padding: '0.75rem 1rem' }}>
+        <span style={{ fontSize: '0.8rem' }}>
+          {enabledTracks} job title{enabledTracks !== 1 ? 's' : ''} × {enabledLocations} location{enabledLocations !== 1 ? 's' : ''}
+          {' = '}<strong>{combos}</strong> search combination{combos !== 1 ? 's' : ''} on the next Run Discovery
+        </span>
+      </div>
+
+      <div className="card">
+        <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>Job Titles</h3>
+        <EditableConfigList
+          items={tracks}
+          itemLabel="job title"
+          primaryField="label" primaryPlaceholder="Title (e.g. Data Scientist)"
+          secondaryField="query" secondaryPlaceholder="hiring.cafe search query (e.g. data scientist)"
+          onAdd={onAddTrack} onUpdate={onUpdateTrack} onDelete={onDeleteTrack}
+        />
+      </div>
+
+      <div className="card">
+        <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>Locations</h3>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.6rem',
+          border: '1px solid var(--border)', borderRadius: 6, marginBottom: '0.4rem', background: 'var(--tag-bg, #f3f4f6)',
+        }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Remote</span>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Built-in — always searched, can't be edited or removed</span>
+        </div>
+        <EditableConfigList
+          items={locations}
+          itemLabel="location"
+          primaryField="label" primaryPlaceholder="Display name (e.g. Austin, TX)"
+          secondaryField="search_term" secondaryPlaceholder="hiring.cafe search term (e.g. Austin, TX)"
+          onAdd={onAddLocation} onUpdate={onUpdateLocation} onDelete={onDeleteLocation}
+        />
+      </div>
+
+      <div className="card">
+        <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>Analyst Tag Rule</h3>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}>
+          Powers "Search &amp; Tag Analyst Jobs" above: searches hiring.cafe for the query below, then asks Haiku
+          the prompt below about each hit — matches get tagged with the tag name below.
+        </p>
+        <AnalystConfigForm config={analystConfig} onSave={onSaveAnalystConfig} />
+      </div>
+    </div>
+  )
+}
+
 export default function JobDiscovery() {
   const [jobs, setJobs] = useState([])
   const [runs, setRuns] = useState([]) // batch history, most recent first
@@ -405,7 +629,7 @@ export default function JobDiscovery() {
   const [elapsedMs, setElapsedMs] = useState(0)
 
   const [view, setView] = useState('results')
-  const [trackFilters, setTrackFilters] = useState(DEFAULT_TRACKS) // empty = all tracks
+  const [trackFilters, setTrackFilters] = useState([]) // empty = all tracks
   const [locationFilter, setLocationFilter] = useState('')
   const [seniorityDir, setSeniorityDir] = useState(null) // null | 'asc' | 'desc'
   const [batchFilter, setBatchFilter] = useState('') // '' = all batches, else a run id
@@ -422,6 +646,12 @@ export default function JobDiscovery() {
   const [analystClassify, setAnalystClassify] = useState({ n: 0, total: 0 })
   const [analystCurrentLabel, setAnalystCurrentLabel] = useState('')
   const [analystErrors, setAnalystErrors] = useState([])
+
+  // Discovery Settings — job titles / locations / analyst tag rule, editable
+  // from the "Settings" tab; drives what the backend actually searches next run.
+  const [tracks, setTracks] = useState([])
+  const [locations, setLocations] = useState([])
+  const [analystConfig, setAnalystConfig] = useState(null)
 
   const esRef = useRef(null)
   const analystEsRef = useRef(null)
@@ -440,7 +670,38 @@ export default function JobDiscovery() {
   useEffect(() => {
     api.discoveryJobs().then(setJobs).catch(() => {})
     api.discoveryRuns().then(setRuns).catch(() => {})
+    api.discoveryTracks().then(setTracks).catch(() => {})
+    api.discoveryLocations().then(setLocations).catch(() => {})
+    api.getAnalystConfig().then(setAnalystConfig).catch(() => {})
   }, [])
+
+  async function handleAddTrack(label, query) {
+    await api.addDiscoveryTrack(label, query)
+    setTracks(await api.discoveryTracks())
+  }
+  async function handleUpdateTrack(id, patch) {
+    await api.updateDiscoveryTrack(id, patch)
+    setTracks(await api.discoveryTracks())
+  }
+  async function handleDeleteTrack(id) {
+    await api.deleteDiscoveryTrack(id)
+    setTracks(await api.discoveryTracks())
+  }
+  async function handleAddLocation(label, search_term) {
+    await api.addDiscoveryLocation(label, search_term)
+    setLocations(await api.discoveryLocations())
+  }
+  async function handleUpdateLocation(id, patch) {
+    await api.updateDiscoveryLocation(id, patch)
+    setLocations(await api.discoveryLocations())
+  }
+  async function handleDeleteLocation(id) {
+    await api.deleteDiscoveryLocation(id)
+    setLocations(await api.discoveryLocations())
+  }
+  async function handleSaveAnalystConfig(patch) {
+    setAnalystConfig(await api.updateAnalystConfig(patch))
+  }
 
   useEffect(() => {
     if (status !== 'running' || !startedAt) return
@@ -627,8 +888,9 @@ export default function JobDiscovery() {
   )
   const locationOptions = useMemo(() => {
     const present = new Set(jobs.map(j => j.search_location).filter(Boolean))
-    return LOCATION_ORDER.filter(l => present.has(l))
-  }, [jobs])
+    const order = ['Remote', ...locations.map(l => l.label)]
+    return order.filter(l => present.has(l))
+  }, [jobs, locations])
 
   const facetFilteredJobs = useMemo(() => jobs.filter(j =>
     (trackFilters.length === 0 || trackFilters.includes(j.job_type)) &&
@@ -695,13 +957,17 @@ export default function JobDiscovery() {
   const liveEnriched = runSummary?.jobs_enriched ?? jobs.filter(j => j.phase2_status === 'enriched').length
   const liveFailed = runSummary?.jobs_failed ?? failedJobs.length
 
+  const enabledTrackCount = tracks.filter(t => t.enabled).length
+  const enabledLocationCount = locations.filter(l => l.enabled).length + 1 // +1 for the built-in Remote
+  const comboCount = enabledTrackCount * enabledLocationCount
+
   return (
     <div>
       <div className="page-header">
         <h1 className="page-title">Job Discovery</h1>
         <p className="page-subtitle">
-          Pulls DS / AI / ML postings from hiring.cafe across 7 job tracks × 11 locations (77 combinations),
-          deduped against your tracker · posted in the last 3 days
+          Pulls DS / AI / ML postings from hiring.cafe across {enabledTrackCount} job track{enabledTrackCount !== 1 ? 's' : ''} × {enabledLocationCount} location{enabledLocationCount !== 1 ? 's' : ''} ({comboCount} combinations),
+          deduped against your tracker · posted in the last 3 days · configurable in the Settings tab
         </p>
       </div>
 
@@ -769,7 +1035,7 @@ export default function JobDiscovery() {
               minWidth: 260, padding: '0.45rem 1rem', background: 'none', border: '1px solid #a855f7',
               borderRadius: 6, cursor: 'pointer', color: '#a855f7', fontFamily: 'inherit', fontSize: '0.875rem',
             }}>
-              Search & Tag Analyst Jobs (Python + ML)
+              Search & Tag Analyst Jobs{analystConfig?.tag ? ` ("${analystConfig.tag}")` : ''}
             </button>
           ) : (
             <button onClick={stopAnalystRun}
@@ -784,7 +1050,7 @@ export default function JobDiscovery() {
 
           {analystTagStatus === 'done' && (
             <span style={{ fontSize: '0.78rem', color: '#16a34a' }}>
-              Tagged {analystTagCount} job{analystTagCount !== 1 ? 's' : ''} as "{ANALYST_ML_TAG}" — filter via the Tagged view
+              Tagged {analystTagCount} job{analystTagCount !== 1 ? 's' : ''} as "{analystConfig?.tag}" — filter via the Tagged view
             </span>
           )}
 
@@ -833,6 +1099,9 @@ export default function JobDiscovery() {
         </button>
         <button className={`tab-pill${view === 'failed' ? ' active' : ''}`} onClick={() => setView('failed')}>
           Failed ({failedJobs.length + comboErrors.length})
+        </button>
+        <button className={`tab-pill${view === 'settings' ? ' active' : ''}`} onClick={() => setView('settings')}>
+          ⚙ Settings
         </button>
       </div>
 
@@ -1059,6 +1328,15 @@ export default function JobDiscovery() {
             </div>
           ))}
         </div>
+      )}
+
+      {view === 'settings' && (
+        <DiscoverySettingsPanel
+          tracks={tracks} locations={locations} analystConfig={analystConfig}
+          onAddTrack={handleAddTrack} onUpdateTrack={handleUpdateTrack} onDeleteTrack={handleDeleteTrack}
+          onAddLocation={handleAddLocation} onUpdateLocation={handleUpdateLocation} onDeleteLocation={handleDeleteLocation}
+          onSaveAnalystConfig={handleSaveAnalystConfig}
+        />
       )}
     </div>
   )

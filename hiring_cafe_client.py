@@ -16,20 +16,24 @@ _HEADERS = {
     "Accept": "application/json",
 }
 
-# (display label, search term for resolve_location; "Remote" has no search term)
-CITIES = [
-    ("Charlotte, NC",       "Charlotte, NC"),
-    ("Raleigh/Durham, NC",  "Raleigh, NC"),
-    ("Winston-Salem, NC",   "Winston-Salem, NC"),
-    ("Chapel Hill, NC",     "Chapel Hill, NC"),
-    ("Charleston, SC",      "Charleston, SC"),
-    ("Charlottesville, VA", "Charlottesville, VA"),
-    ("Richmond, VA",        "Richmond, VA"),
-    ("Nashville, TN",       "Nashville, TN"),
-    ("Atlanta, GA",         "Atlanta, GA"),
-]
+def get_all_locations() -> list[tuple[str, str | None]]:
+    """(display label, search term for resolve_location; "Remote" has no search term).
 
-LOCATIONS = [("Remote", None)] + CITIES
+    Computed fresh from db.discovery_locations on every call (not cached at import
+    time) so edits made via the Discovery Settings GUI take effect on the very next
+    run without a backend restart. "Remote" is a fixed pseudo-location, not a DB row —
+    it has no search_term/geocoding and several call sites already special-case it.
+    """
+    rows = db.get_locations(enabled_only=True)
+    return [("Remote", None)] + [(row["label"], row["search_term"]) for row in rows]
+
+
+def forget_location(label: str) -> None:
+    """Purge a stale cache entry after a location is renamed or deleted via the GUI."""
+    cache = _load_loc_cache()
+    if label in cache:
+        del cache[label]
+        _save_loc_cache(cache)
 
 # Title substrings (lowercase) to drop — loose hiring.cafe free-text matching
 # pulls these in alongside real IC DS/ML/AI roles.
@@ -83,7 +87,7 @@ def resolve_location(city_state: str) -> dict | None:
 def resolve_all_locations() -> dict:
     """Ensure every named city has a cached location object. Yields (label, status)."""
     cache = _load_loc_cache()
-    for (label, search_term) in LOCATIONS:
+    for (label, search_term) in get_all_locations():
         if label == "Remote":
             continue
         if label in cache:

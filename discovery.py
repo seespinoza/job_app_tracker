@@ -4,42 +4,27 @@ import db
 import scraper
 import hiring_cafe_client
 
-# (job_type label used across the app, hiring.cafe search query text)
-JOB_TRACKS = [
-    ("Data Scientist",        "data scientist"),
-    ("Data Science Engineer", "data science engineer"),
-    ("AI Engineer",           "AI engineer"),
-    ("ML Engineer",           "ML engineer"),
-    ("Analytics Engineer",    "analytics engineer"),
-    ("GenAI/LLM Engineer",    "GenAI engineer"),
-    ("Python Analyst",        "python analyst"),
-]
-
 DATE_WINDOW_DAYS = 3
-
-ANALYST_SEARCH_QUERY = "analyst"
-
-# Matches the frontend's ANALYST_ML_TAG (JobDiscovery.jsx) — this is the one
-# tag the backend itself writes, so both sides must agree on the literal string.
-ANALYST_ML_TAG = "analyst-python-ml"
 
 
 def run_analyst_discovery(days: int = DATE_WINDOW_DAYS):
     """
     Synchronous generator, mirroring run_discovery()'s event pattern: live-
-    searches hiring.cafe for the free-text query "analyst" across every
-    location (11 total — Remote + 10 cities), independent of whatever the
-    last Run Discovery pass happened to surface under the 7 job tracks.
+    searches hiring.cafe for the analyst rule's search query (DB-configured,
+    editable in Discovery Settings) across every enabled location, independent
+    of whatever the last Run Discovery pass happened to surface under the
+    configured job tracks.
 
     Deliberately does not filter on job_title — relevance is judged purely
-    by the Haiku classification pass that follows (does the description
-    itself mention Python + ML), not by whether "analyst" literally
-    appears in the title. Every normalized, deduped hit is upserted into
-    discovered_jobs so it behaves like any other discovered job (taggable,
-    saveable) before classification even runs; matches get tagged
-    ANALYST_ML_TAG directly on the DB row.
+    by the Haiku classification pass that follows (per the DB-configured
+    prompt template), not by whether the search term literally appears in
+    the title. Every normalized, deduped hit is upserted into discovered_jobs
+    so it behaves like any other discovered job (taggable, saveable) before
+    classification even runs; matches get tagged with the configured tag
+    directly on the DB row.
     """
-    locations = hiring_cafe_client.LOCATIONS
+    analyst_cfg = db.get_analyst_config()
+    locations = hiring_cafe_client.get_all_locations()
     total_locations = len(locations)
     run_id = db.create_scrape_run(total_locations, run_type="analyst_ml")
 
@@ -69,7 +54,7 @@ def run_analyst_discovery(days: int = DATE_WINDOW_DAYS):
         location = None if is_remote else hiring_cafe_client.get_location(loc_label)
         try:
             raw_hits = hiring_cafe_client.search_jobs(
-                ANALYST_SEARCH_QUERY, location, is_remote, days=days
+                analyst_cfg["search_query"], location, is_remote, days=days
             )
         except Exception as e:
             yield {"type": "combo_error", "label": loc_label, "error": str(e)}
@@ -86,7 +71,7 @@ def run_analyst_discovery(days: int = DATE_WINDOW_DAYS):
             if normalized["hc_id"] in seen_hc_ids:
                 continue
             seen_hc_ids.add(normalized["hc_id"])
-            normalized["search_query"] = ANALYST_SEARCH_QUERY
+            normalized["search_query"] = analyst_cfg["search_query"]
             job_id = db.upsert_discovered_job(normalized, run_id=run_id)
             candidates.append({**normalized, "id": job_id})
 
@@ -103,12 +88,12 @@ def run_analyst_discovery(days: int = DATE_WINDOW_DAYS):
             "job_title": job.get("job_title"),
         }
         try:
-            is_match, _latency = scraper.classify_analyst_job(job)
+            is_match, _latency = scraper.classify_analyst_job(job, analyst_cfg["prompt_template"])
         except Exception as e:
             yield {"type": "classify_error", "job_id": job["id"], "job_title": job.get("job_title"), "error": str(e)}
             continue
         if is_match:
-            tags = sorted({*(job.get("tags") or []), ANALYST_ML_TAG})
+            tags = sorted({*(job.get("tags") or []), analyst_cfg["tag"]})
             db.update_discovered_job_tags(job["id"], tags)
             matched += 1
             db.update_scrape_run(run_id, jobs_new=matched)
@@ -119,10 +104,12 @@ def run_analyst_discovery(days: int = DATE_WINDOW_DAYS):
 
 
 def get_discovery_combinations() -> list[dict]:
-    """All 77 combos (7 job tracks × 11 locations)."""
+    """All combos of enabled job tracks × locations, sourced from the DB-backed
+    Discovery Settings config (editable in the GUI) rather than hardcoded lists."""
     combos = []
-    for job_type, query in JOB_TRACKS:
-        for loc_label, _search_term in hiring_cafe_client.LOCATIONS:
+    tracks = [(row["label"], row["query"]) for row in db.get_job_tracks(enabled_only=True)]
+    for job_type, query in tracks:
+        for loc_label, _search_term in hiring_cafe_client.get_all_locations():
             is_remote = loc_label == "Remote"
             combos.append({
                 "label":    f"{job_type} | {loc_label}",
