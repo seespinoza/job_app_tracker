@@ -8,9 +8,16 @@ async function request(method, path, body = null) {
     // FastAPI's HTTPException responses are {"detail": "..."} — surface that
     // text when present (e.g. duplicate-label / bad-prompt-template messages)
     // instead of just the status code, so callers can show it to the user.
+    // detail can also be a structured object (e.g. save-applied's missing
+    // required fields) — callers that need the structured form read err.detail.
     let detail = null
     try { detail = (await res.json()).detail } catch { /* not JSON */ }
-    throw new Error(detail || `${method} ${path} → ${res.status}`)
+    const message = typeof detail === 'string' ? detail
+      : (detail && detail.message) || `${method} ${path} → ${res.status}`
+    const err = new Error(message)
+    err.status = res.status
+    err.detail = detail
+    throw err
   }
   return res.json()
 }
@@ -49,7 +56,7 @@ export const api = {
   uploadResume: (formData) => uploadFile('/resumes', formData),
   deleteResume: (id) => request('DELETE', `/resumes/${id}`),
   resumeFileUrl: (id) => `${BASE}/resumes/${id}/file`,
-  discoveryJobs: () => request('GET', '/discovery/jobs'),
+  discoveryJobs: (runId) => request('GET', `/discovery/jobs${runId ? `?run_id=${runId}` : ''}`),
   discoveryRuns: () => request('GET', '/discovery/runs'),
   discoveryLatestRun: () => request('GET', '/discovery/runs/latest'),
   discoveryDismiss: (id) => request('POST', `/discovery/jobs/${id}/dismiss`),

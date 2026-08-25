@@ -14,6 +14,8 @@ Two processes must run simultaneously:
 cd frontend && npm run dev
 ```
 
+**Windows (PowerShell):** `.venv\Scripts\uvicorn.exe api:app --reload --host 0.0.0.0` in place of the `.venv/bin/uvicorn` line above. Non-technical users can instead double-click `windows/setup_and_run.bat`, which installs dependencies if needed and launches both servers. Full cross-OS steps: [SETUP.md](SETUP.md).
+
 Frontend at http://localhost:5173, API at http://localhost:8000. Vite proxies `/api/*` → backend automatically.
 
 Requires `ANTHROPIC_API_KEY` env var for AI job extraction (scraper fallback; optional — app works without it).
@@ -81,7 +83,7 @@ Adding a new value means updating `db.py`. The frontend fetches these from `/api
 
 ## LAN access
 
-Both servers bind to `0.0.0.0`, so any device on the same network can reach the app at `http://<host-ip>:5173`. On Fedora, you may need to open the port temporarily: `sudo firewall-cmd --add-port=5173/tcp`.
+Both servers bind to `0.0.0.0`, so any device on the same network can reach the app at `http://<host-ip>:5173`. On Fedora, you may need to open the port temporarily: `sudo firewall-cmd --add-port=5173/tcp`. On Windows, Defender Firewall usually prompts on first launch; otherwise: `netsh advfirewall firewall add rule name="JobTracker" dir=in action=allow protocol=TCP localport=5173,8000` (elevated PowerShell). Find your IP with `hostname -I` (Linux/Mac) or `ipconfig` (Windows).
 
 ## Database Backups — DO NOT TOUCH
 

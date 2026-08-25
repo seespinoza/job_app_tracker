@@ -64,14 +64,10 @@ def _extract_json(raw: str) -> dict:
     raise ValueError(f"No valid JSON found in model response: {raw[:300]!r}")
 
 
-def _validate_extracted(data: dict) -> dict:
-    """Coerce types and assert required fields exist."""
+def _coerce_extracted(data: dict) -> dict:
+    """Type coercion shared by strict and lenient parsing. Never raises."""
     if not isinstance(data, dict):
-        raise ValueError(f"Expected dict, got {type(data).__name__}")
-
-    for field in ("company", "job_title"):
-        if not data.get(field):
-            raise ValueError(f"Extracted JSON missing required field: {field!r}")
+        return {}
 
     str_fields = {"company", "org_team", "job_title", "job_type", "work_arrangement",
                   "job_source", "date_posted", "summary", "salary_currency"}
@@ -99,6 +95,18 @@ def _validate_extracted(data: dict) -> dict:
     return data
 
 
+def _validate_extracted(data: dict) -> dict:
+    """Coerce types and assert required fields exist."""
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected dict, got {type(data).__name__}")
+
+    for field in ("company", "job_title"):
+        if not data.get(field):
+            raise ValueError(f"Extracted JSON missing required field: {field!r}")
+
+    return _coerce_extracted(data)
+
+
 def _parse_with_haiku(text: str) -> dict:
     import anthropic
     api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -113,6 +121,26 @@ def _parse_with_haiku(text: str) -> dict:
     raw = msg.content[0].text.strip()
     result = _extract_json(raw)
     return _validate_extracted(result)
+
+
+def _parse_with_haiku_lenient(text: str) -> dict:
+    """Like _parse_with_haiku, but never raises when company/job_title are
+    missing — used by rescrape_preserving_date_posted, where a partial
+    result (everything but, say, company) is still worth merging in rather
+    than discarding outright."""
+    import anthropic
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model=HAIKU_MODEL,
+        max_tokens=1024,
+        messages=[{"role": "user", "content": EXTRACTION_PROMPT + text[:16000]}],
+    )
+    raw = msg.content[0].text.strip()
+    result = _extract_json(raw)
+    return _coerce_extracted(result)
 
 
 def classify_analyst_job(job: dict, prompt_template: str) -> tuple[bool, float]:
@@ -171,34 +199,10 @@ def extract_job_from_text(text: str) -> tuple[dict, str | None]:
         return {}, f"AI parsing failed: {e}"
 
 
-def rescrape_preserving_date_posted(data: dict) -> dict:
-    """Re-run the full extraction pipeline against data['job_link'] and merge the
-    results in, but never touch date_posted — hiring.cafe's estimated_publish_date
-    is a more reliable signal than whatever Haiku infers from page text, so the
-    value already present in data is always kept as-is.
-    """
-    job_link = data.get("job_link")
-    if not job_link:
-        return data
-    extracted, error = extract_job_from_url(job_link)
-    if error or not extracted:
-        return data
-    date_posted = data.get("date_posted")
-    merged = dict(data)
-    for key, value in extracted.items():
-        if key == "date_posted" or value in (None, [], ""):
-            continue
-        merged[key] = value
-    merged["date_posted"] = date_posted
-    return merged
-
-
-def extract_job_from_url(url: str) -> tuple[dict, str | None]:
-    """
-    Returns (data_dict, error_message_or_None).
-    Tries Jina Reader first, then Playwright as fallback.
-    data_dict includes 'raw_text' with the full scraped page content.
-    """
+def _fetch_page_text(url: str) -> tuple[str | None, str | None]:
+    """Fetch the raw page text for url via Jina Reader, falling back to
+    Playwright. Returns (text, None) on success or (None, error_message) if
+    both methods fail. Every attempt is logged to scraper_log."""
     # ── Jina Reader ───────────────────────────────────────────────────────────
     start = time.time()
     try:
@@ -211,13 +215,7 @@ def extract_job_from_url(url: str) -> tuple[dict, str | None]:
         latency = int((time.time() - start) * 1000)
         if resp.status_code == 200 and len(resp.text.strip()) > 100:
             _log(url, "jina", True, latency)
-            try:
-                data = _parse_with_haiku(resp.text)
-                data["job_link"] = url
-                data["raw_text"] = resp.text[:RAW_TEXT_MAX]
-                return data, None
-            except Exception as e:
-                return {}, f"Jina fetched content but AI parsing failed: {e}"
+            return resp.text, None
         else:
             _log(url, "jina", False, latency, f"HTTP {resp.status_code} or empty body")
     except Exception as e:
@@ -238,24 +236,78 @@ def extract_job_from_url(url: str) -> tuple[dict, str | None]:
         latency = int((time.time() - start) * 1000)
         if text.strip():
             _log(url, "playwright", True, latency)
-            try:
-                data = _parse_with_haiku(text)
-                data["job_link"] = url
-                data["raw_text"] = text[:RAW_TEXT_MAX]
-                return data, None
-            except Exception as e:
-                return {}, f"Playwright fetched content but AI parsing failed: {e}"
+            return text, None
         else:
             _log(url, "playwright", False, latency, "Empty page body")
-            return {}, "Both Jina and Playwright returned no usable content"
+            return None, "Both Jina and Playwright returned no usable content"
     except ImportError:
         latency = int((time.time() - start) * 1000)
         _log(url, "playwright", False, latency, "playwright not installed")
-        return {}, (
+        return None, (
             "Jina failed and Playwright is not installed.\n"
             "Install with: pip install playwright && playwright install chromium"
         )
     except Exception as e:
         latency = int((time.time() - start) * 1000)
         _log(url, "playwright", False, latency, str(e))
-        return {}, f"Both fetch methods failed. Last error: {e}"
+        return None, f"Both fetch methods failed. Last error: {e}"
+
+
+def rescrape_preserving_date_posted(data: dict) -> dict:
+    """Re-fetch the full posting at data['job_link'] and merge in whatever
+    Haiku can parse from it, but never touch date_posted — hiring.cafe's
+    estimated_publish_date is a more reliable signal than whatever Haiku
+    infers from page text, so the value already present in data is always
+    kept as-is.
+
+    The freshly-scraped full job description (raw_text) is always merged in
+    as long as the page fetch itself succeeds, even when Haiku can only
+    partially parse it (or fails to parse it at all) — a struggling AI
+    extraction shouldn't cost the user the underlying posting text. Only
+    the individual structured fields Haiku actually found are merged in;
+    fields it couldn't find are left as whatever data already had. Callers
+    that need company/job_title to be present (e.g. saving into
+    job_applications, which requires both) must check the merged result
+    themselves — this function does not raise when they're still missing.
+    """
+    job_link = data.get("job_link")
+    if not job_link:
+        return data
+    text, fetch_error = _fetch_page_text(job_link)
+    if fetch_error or not text:
+        return data
+
+    merged = dict(data)
+    merged["raw_text"] = text[:RAW_TEXT_MAX]
+    merged["job_link"] = job_link
+
+    try:
+        extracted = _parse_with_haiku_lenient(text)
+    except Exception:
+        extracted = {}
+
+    date_posted = data.get("date_posted")
+    for key, value in extracted.items():
+        if key in ("date_posted", "raw_text", "job_link") or value in (None, [], ""):
+            continue
+        merged[key] = value
+    merged["date_posted"] = date_posted
+    return merged
+
+
+def extract_job_from_url(url: str) -> tuple[dict, str | None]:
+    """
+    Returns (data_dict, error_message_or_None).
+    Tries Jina Reader first, then Playwright as fallback.
+    data_dict includes 'raw_text' with the full scraped page content.
+    """
+    text, error = _fetch_page_text(url)
+    if error or not text:
+        return {}, error or "No usable content returned"
+    try:
+        data = _parse_with_haiku(text)
+        data["job_link"] = url
+        data["raw_text"] = text[:RAW_TEXT_MAX]
+        return data, None
+    except Exception as e:
+        return {}, f"Fetched content but AI parsing failed: {e}"

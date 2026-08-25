@@ -235,8 +235,9 @@ function TagEditor({ job, onUpdateTags }) {
   )
 }
 
-function JobCard({ job, onSaveTodo, onSaveApplied, onDismiss, onUpdateTags }) {
-  const [state, setState] = useState('pending') // pending | saving | todo | applied | error
+function JobCard({ job, onSaveTodo, onSaveApplied, onDismiss, onUpdateTags, onResolveMissing }) {
+  const [state, setState] = useState('pending') // pending | saving | todo | applied | error | needs_info
+  const [missingFields, setMissingFields] = useState([])
   const [applyDate, setApplyDate] = useState(TODAY)
   const [showApplyDate, setShowApplyDate] = useState(false)
   const sal = salaryDisplay(job)
@@ -250,7 +251,17 @@ function JobCard({ job, onSaveTodo, onSaveApplied, onDismiss, onUpdateTags }) {
   async function handleApplied() {
     if (!showApplyDate) { setShowApplyDate(true); return }
     setState('saving')
-    try { await onSaveApplied(job, applyDate); setState('applied') } catch { setState('error') }
+    try {
+      await onSaveApplied(job, applyDate)
+      setState('applied')
+    } catch (err) {
+      if (err.missingFields) {
+        setMissingFields(err.missingFields)
+        setState('needs_info')
+      } else {
+        setState('error')
+      }
+    }
   }
 
   const isSaved = state === 'todo' || state === 'applied'
@@ -259,7 +270,7 @@ function JobCard({ job, onSaveTodo, onSaveApplied, onDismiss, onUpdateTags }) {
   return (
     <div style={{
       border: '1px solid var(--border)',
-      borderLeft: `3px solid ${state === 'todo' ? '#2563eb' : state === 'applied' ? '#16a34a' : state === 'error' ? '#dc2626' : failedEnrichment ? '#b45309' : 'var(--border)'}`,
+      borderLeft: `3px solid ${state === 'todo' ? '#2563eb' : state === 'applied' ? '#16a34a' : state === 'error' || state === 'needs_info' ? '#dc2626' : failedEnrichment ? '#b45309' : 'var(--border)'}`,
       borderRadius: 6,
       padding: '0.9rem 1rem',
       background: 'var(--card-bg)',
@@ -342,6 +353,87 @@ function JobCard({ job, onSaveTodo, onSaveApplied, onDismiss, onUpdateTags }) {
           {state === 'todo' && <span style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 600 }}>Added to To-Do ✓</span>}
           {state === 'applied' && <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 600 }}>Saved as Applied ✓</span>}
           {state === 'error' && <span style={{ fontSize: '0.75rem', color: '#dc2626' }}>Save failed</span>}
+          {state === 'needs_info' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-end' }}>
+              <span style={{ fontSize: '0.72rem', color: '#dc2626', fontWeight: 600, textAlign: 'right', maxWidth: 160 }}>
+                Missing {missingFields.join(' & ')} — can't save
+              </span>
+              <button onClick={() => onResolveMissing(job, applyDate, missingFields)}
+                style={{ fontSize: '0.75rem', padding: '3px 10px', background: 'none', border: '1px solid #dc2626', borderRadius: 4, cursor: 'pointer', color: '#dc2626', whiteSpace: 'nowrap' }}>
+                Resolve manually
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Shown when /api/discovery/save-applied 422s because neither hiring.cafe's
+// initial data nor the full-posting rescrape could find a required field
+// (company and/or job_title — job_applications requires both). Lets the
+// user fill the gap in by hand instead of losing the save entirely.
+function ResolveApplyModal({ modal, onFieldChange, onSave, onCancel, saving, error }) {
+  if (!modal) return null
+  const { job, missingFields } = modal
+
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--card-bg, #fff)', border: '1px solid var(--border)',
+          borderRadius: 8, padding: '1.5rem', minWidth: 340, maxWidth: 480,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.5rem' }}>
+          Missing required info
+        </div>
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem', lineHeight: 1.5 }}>
+          Neither hiring.cafe's listing nor the full job posting included <strong>{missingFields.join(' or ')}</strong>.
+          Enter {missingFields.length > 1 ? 'them' : 'it'} manually to save this application.
+          {job.job_link && (
+            <>{' '}<a href={job.job_link} target="_blank" rel="noreferrer">View posting ↗</a></>
+          )}
+        </div>
+        {missingFields.includes('company') && (
+          <div style={{ marginBottom: '0.75rem' }}>
+            <label style={{ fontSize: '0.85rem', display: 'block', marginBottom: '0.25rem' }}>Company</label>
+            <input
+              value={modal.company} onChange={e => onFieldChange('company', e.target.value)}
+              autoFocus style={{ width: '100%' }}
+            />
+          </div>
+        )}
+        {missingFields.includes('job_title') && (
+          <div style={{ marginBottom: '0.75rem' }}>
+            <label style={{ fontSize: '0.85rem', display: 'block', marginBottom: '0.25rem' }}>Job title</label>
+            <input
+              value={modal.job_title} onChange={e => onFieldChange('job_title', e.target.value)}
+              style={{ width: '100%' }}
+            />
+          </div>
+        )}
+        {error && <div style={{ fontSize: '0.8rem', color: '#dc2626', marginBottom: '0.75rem' }}>{error}</div>}
+        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+          <button className="btn" onClick={onCancel}
+            style={{ background: 'none', border: '1px solid var(--border)' }} disabled={saving}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-success" onClick={onSave}
+            disabled={saving || missingFields.some(f => !modal[f]?.trim())}
+          >
+            {saving ? 'Saving…' : 'Save as Applied'}
+          </button>
         </div>
       </div>
     </div>
@@ -611,6 +703,9 @@ function DiscoverySettingsPanel({
 
 export default function JobDiscovery() {
   const [jobs, setJobs] = useState([])
+  const [resolveModal, setResolveModal] = useState(null) // { job, date_applied, missingFields, company, job_title }
+  const [resolveSaving, setResolveSaving] = useState(false)
+  const [resolveError, setResolveError] = useState(null)
   const [runs, setRuns] = useState([]) // batch history, most recent first
   const lastRun = runs.find(r => (r.run_type || 'discovery') === 'discovery') || null
   const lastAnalystRun = runs.find(r => r.run_type === 'analyst_ml') || null
@@ -667,13 +762,27 @@ export default function JobDiscovery() {
     })
   }
 
+  // On load, only fetch the most recent batch's jobs — with a large history this
+  // is far faster than pulling every job ever discovered. "All batches" is fetched
+  // on demand only when the user explicitly picks it from the batch filter.
   useEffect(() => {
-    api.discoveryJobs().then(setJobs).catch(() => {})
-    api.discoveryRuns().then(setRuns).catch(() => {})
+    api.discoveryRuns().then(runsData => {
+      setRuns(runsData)
+      const latest = runsData[0]
+      setBatchFilter(latest ? String(latest.id) : '')
+      return api.discoveryJobs(latest?.id)
+    }).then(setJobs).catch(() => {})
     api.discoveryTracks().then(setTracks).catch(() => {})
     api.discoveryLocations().then(setLocations).catch(() => {})
     api.getAnalystConfig().then(setAnalystConfig).catch(() => {})
   }, [])
+
+  // Batch filter changes require a re-fetch, since only the current batch's jobs
+  // (or all of them, if 'All batches' is picked) live in `jobs` at any given time.
+  async function handleBatchFilterChange(value) {
+    setBatchFilter(value)
+    try { setJobs(await api.discoveryJobs(value || undefined)) } catch { /* ignore */ }
+  }
 
   async function handleAddTrack(label, query) {
     await api.addDiscoveryTrack(label, query)
@@ -713,6 +822,7 @@ export default function JobDiscovery() {
     if (esRef.current) esRef.current.close()
 
     setJobs([])
+    setBatchFilter('') // the fresh batch's run id isn't known yet — don't filter live results out
     setLocationWarnings([]); setComboErrors([]); setEnrichErrors([])
     setPhase(null); setPhase1({ n: 0, total: 0 }); setPhase2({ n: 0, total: 0 })
     setRunSummary(null); setErrorMessage('')
@@ -768,6 +878,7 @@ export default function JobDiscovery() {
             jobs_found: event.jobs_found, jobs_new: event.jobs_new,
             jobs_enriched: event.jobs_enriched, jobs_failed: event.jobs_failed,
           })
+          if (event.run_id != null) setBatchFilter(String(event.run_id))
           api.discoveryRuns().then(setRuns).catch(() => {})
           es.close()
           break
@@ -863,15 +974,65 @@ export default function JobDiscovery() {
     setAnalystTagStatus('idle'); setAnalystPhase(null); setAnalystCurrentLabel('')
   }
 
+  // The backend dismisses every row that shares this job's hc_id (a job can
+  // appear as more than one row — e.g. an analyst-tag match against a posting
+  // an earlier batch already found gets its own duplicate row). Mirror that
+  // here so any other loaded copy disappears immediately too, without
+  // touching the acted-on card itself so its own "Saved"/"Applied" state
+  // still renders.
+  function dropOtherDuplicates(prev, job) {
+    return prev.filter(j => j.id === job.id || j.hc_id !== job.hc_id)
+  }
   async function handleSaveTodo(job) {
     await api.discoverySaveTodo({ discovered_job_id: job.id, ...jobPayload(job), extracted_by_ai: true })
+    setJobs(prev => dropOtherDuplicates(prev, job))
   }
   async function handleSaveApplied(job, date_applied) {
-    await api.discoverySaveApplied({ discovered_job_id: job.id, ...jobPayload(job), date_applied, status: 'applied' })
+    try {
+      await api.discoverySaveApplied({ discovered_job_id: job.id, ...jobPayload(job), date_applied, status: 'applied' })
+      setJobs(prev => dropOtherDuplicates(prev, job))
+    } catch (err) {
+      if (err.status === 422 && err.detail?.missing_fields) {
+        err.missingFields = err.detail.missing_fields
+      }
+      throw err
+    }
+  }
+  function handleResolveMissing(job, date_applied, missingFields) {
+    setResolveError(null)
+    setResolveModal({ job, date_applied, missingFields, company: job.company || '', job_title: job.job_title || '' })
+  }
+  function handleResolveFieldChange(field, value) {
+    setResolveModal(m => ({ ...m, [field]: value }))
+  }
+  function handleResolveCancel() {
+    setResolveModal(null)
+    setResolveError(null)
+  }
+  async function handleResolveSave() {
+    const { job, date_applied, company, job_title } = resolveModal
+    setResolveSaving(true)
+    setResolveError(null)
+    try {
+      await api.discoverySaveApplied({
+        discovered_job_id: job.id, ...jobPayload(job),
+        company: company.trim(), job_title: job_title.trim(),
+        date_applied, status: 'applied',
+      })
+      // The acted-on JobCard's local state won't otherwise learn the save
+      // succeeded (it isn't re-rendered from here), so drop the whole row —
+      // same as a dismiss — rather than leave it stuck showing "needs info".
+      setJobs(prev => prev.filter(j => j.hc_id !== job.hc_id))
+      setResolveModal(null)
+    } catch (err) {
+      setResolveError(err.message)
+    } finally {
+      setResolveSaving(false)
+    }
   }
   async function handleDismiss(job) {
     await api.discoveryDismiss(job.id)
-    setJobs(prev => prev.filter(j => j.id !== job.id))
+    setJobs(prev => prev.filter(j => j.hc_id !== job.hc_id))
   }
   async function handleUpdateTags(job, tags) {
     const cleaned = [...new Set(tags.map(t => t.trim()).filter(Boolean))]
@@ -1141,7 +1302,7 @@ export default function JobDiscovery() {
                 Seniority {seniorityDir === 'asc' ? '↑ Junior first' : seniorityDir === 'desc' ? '↓ Senior first' : '(unsorted)'}
               </button>
               {runs.length > 0 && (
-                <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} style={{ width: 'auto' }}>
+                <select value={batchFilter} onChange={e => handleBatchFilterChange(e.target.value)} style={{ width: 'auto' }}>
                   <option value="">All batches</option>
                   {runs.map(r => <option key={r.id} value={r.id}>{formatRunLabel(r)}</option>)}
                 </select>
@@ -1218,6 +1379,7 @@ export default function JobDiscovery() {
                   onSaveApplied={handleSaveApplied}
                   onDismiss={handleDismiss}
                   onUpdateTags={handleUpdateTags}
+                  onResolveMissing={handleResolveMissing}
                 />
               ))}
             </div>
@@ -1270,7 +1432,7 @@ export default function JobDiscovery() {
                 Seniority {seniorityDir === 'asc' ? '↑ Junior first' : seniorityDir === 'desc' ? '↓ Senior first' : '(unsorted)'}
               </button>
               {runs.length > 0 && (
-                <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} style={{ width: 'auto' }}>
+                <select value={batchFilter} onChange={e => handleBatchFilterChange(e.target.value)} style={{ width: 'auto' }}>
                   <option value="">All batches</option>
                   {runs.map(r => <option key={r.id} value={r.id}>{formatRunLabel(r)}</option>)}
                 </select>
@@ -1288,6 +1450,7 @@ export default function JobDiscovery() {
                   onSaveApplied={handleSaveApplied}
                   onDismiss={handleDismiss}
                   onUpdateTags={handleUpdateTags}
+                  onResolveMissing={handleResolveMissing}
                 />
               ))}
             </div>
@@ -1338,6 +1501,15 @@ export default function JobDiscovery() {
           onSaveAnalystConfig={handleSaveAnalystConfig}
         />
       )}
+
+      <ResolveApplyModal
+        modal={resolveModal}
+        onFieldChange={handleResolveFieldChange}
+        onSave={handleResolveSave}
+        onCancel={handleResolveCancel}
+        saving={resolveSaving}
+        error={resolveError}
+      />
     </div>
   )
 }

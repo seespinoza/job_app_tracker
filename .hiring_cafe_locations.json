@@ -418,5 +418,299 @@
       "radius_unit": "miles",
       "ignore_radius": false
     }
+  },
+  "Marietta, GA": {
+    "id": "tRk1yZQBoEtHp_8Ur6_p",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Marietta",
+        "short_name": "Marietta",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Georgia",
+        "short_name": "GA",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 33.9526,
+        "lon": -84.54993
+      }
+    },
+    "formatted_address": "Marietta, GA, US",
+    "population": 59067,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Sandy Springs, GA": {
+    "id": "HBk1yZQBoEtHp_8Ur7Dp",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Sandy Springs",
+        "short_name": "Sandy Springs",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Georgia",
+        "short_name": "GA",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 33.92427,
+        "lon": -84.37854
+      }
+    },
+    "formatted_address": "Sandy Springs, GA, US",
+    "population": 105330,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Alpharetta, GA": {
+    "id": "vBk1yZQBoEtHp_8Ur67o",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Alpharetta",
+        "short_name": "Alpharetta",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Georgia",
+        "short_name": "GA",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 34.07538,
+        "lon": -84.29409
+      }
+    },
+    "formatted_address": "Alpharetta, GA, US",
+    "population": 63693,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Kennesaw, GA": {
+    "id": "jhk1yZQBoEtHp_8Ur6_p",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Kennesaw",
+        "short_name": "Kennesaw",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Georgia",
+        "short_name": "GA",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 34.02343,
+        "lon": -84.61549
+      }
+    },
+    "formatted_address": "Kennesaw, GA, US",
+    "population": 33584,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Dunwoody/Perimeter, GA": {
+    "id": "NBk1yZQBoEtHp_8Ur6_o",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Dunwoody",
+        "short_name": "Dunwoody",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Georgia",
+        "short_name": "GA",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 33.94621,
+        "lon": -84.33465
+      }
+    },
+    "formatted_address": "Dunwoody, GA, US",
+    "population": 48733,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Peachtree Corners/Norcross/Duluth, GA": {
+    "id": "7Bk1yZQBoEtHp_8Ur6_p",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Peachtree Corners",
+        "short_name": "Peachtree Corners",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Georgia",
+        "short_name": "GA",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 33.9701,
+        "lon": -84.22159
+      }
+    },
+    "formatted_address": "Peachtree Corners, GA, US",
+    "population": 40978,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
+  },
+  "Decatur, GA": {
+    "id": "Jhk1yZQBoEtHp_8Ur6_o",
+    "types": [
+      "locality"
+    ],
+    "address_components": [
+      {
+        "long_name": "Decatur",
+        "short_name": "Decatur",
+        "types": [
+          "locality"
+        ]
+      },
+      {
+        "long_name": "Georgia",
+        "short_name": "GA",
+        "types": [
+          "administrative_area_level_1"
+        ]
+      },
+      {
+        "long_name": "United States",
+        "short_name": "US",
+        "types": [
+          "country"
+        ]
+      }
+    ],
+    "geometry": {
+      "location": {
+        "lat": 33.77483,
+        "lon": -84.29631
+      }
+    },
+    "formatted_address": "Decatur, GA, US",
+    "population": 21957,
+    "options": {
+      "radius": 50,
+      "radius_unit": "miles",
+      "ignore_radius": false
+    }
   }
 }

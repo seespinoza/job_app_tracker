@@ -457,8 +457,8 @@ def discovery_stream():
 
 
 @app.get("/api/discovery/jobs")
-def list_discovered_jobs():
-    df = db.get_discovered_jobs()
+def list_discovered_jobs(run_id: int | None = None):
+    df = db.get_discovered_jobs(run_id=run_id)
     return df_to_records(df)
 
 
@@ -624,6 +624,21 @@ def discovery_save_applied(body: DiscoverySaveApplied):
     data = body.dict()
     discovered_job_id = data.pop("discovered_job_id", None)
     data = scraper.rescrape_preserving_date_posted(data)
+
+    # company/job_title are NOT NULL on job_applications. If hiring.cafe's
+    # initial scrape and the full-posting rescrape above both came up empty
+    # for a required field, don't silently fail the insert — surface it so
+    # the frontend can prompt the user to fill it in manually.
+    missing = [f for f in ("company", "job_title") if not data.get(f)]
+    if missing:
+        raise HTTPException(status_code=422, detail={
+            "message": (
+                f"Couldn't determine {' and '.join(missing)} from hiring.cafe or the "
+                f"full job posting — enter it manually to save this application."
+            ),
+            "missing_fields": missing,
+        })
+
     new_id = db.insert_job_application(data)
     if discovered_job_id:
         db.dismiss_discovered_job(discovered_job_id)

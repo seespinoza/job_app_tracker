@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import json
+import re
 import pandas as pd
 from datetime import date, datetime
 
@@ -323,6 +324,56 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Drop the UNIQUE constraint on hc_id: an analyst-tag match on a posting
+    # that was already discovered by an earlier batch now inserts its own
+    # (tagged) row instead of mutating the original — see upsert_discovered_job's
+    # force_insert path — so the same hc_id can legitimately appear more than once.
+    existing_sql = c.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='discovered_jobs'"
+    ).fetchone()[0]
+    if existing_sql and re.search(r"hc_id\s+TEXT\s+UNIQUE\s+NOT\s+NULL", existing_sql):
+        c.execute("""
+            CREATE TABLE discovered_jobs_new (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                hc_id           TEXT NOT NULL,
+                company         TEXT,
+                job_title       TEXT,
+                job_type        TEXT,
+                locations       TEXT,
+                work_arrangement TEXT,
+                salary_min      INTEGER,
+                salary_max      INTEGER,
+                salary_currency TEXT DEFAULT 'USD',
+                seniority_level TEXT,
+                min_yoe         INTEGER,
+                job_category    TEXT,
+                job_link        TEXT,
+                job_source      TEXT,
+                summary         TEXT,
+                raw_text        TEXT,
+                date_posted     TEXT,
+                search_query    TEXT,
+                search_location TEXT,
+                phase2_status   TEXT DEFAULT 'pending',
+                phase2_error    TEXT,
+                discovered_at   TEXT DEFAULT (datetime('now')),
+                last_seen_at    TEXT DEFAULT (datetime('now')),
+                dismissed       INTEGER DEFAULT 0,
+                run_id          INTEGER,
+                tags            TEXT DEFAULT '[]'
+            )
+        """)
+        cols = ("id, hc_id, company, job_title, job_type, locations, work_arrangement, "
+                "salary_min, salary_max, salary_currency, seniority_level, min_yoe, "
+                "job_category, job_link, job_source, summary, raw_text, date_posted, "
+                "search_query, search_location, phase2_status, phase2_error, "
+                "discovered_at, last_seen_at, dismissed, run_id, tags")
+        c.execute(f"INSERT INTO discovered_jobs_new ({cols}) SELECT {cols} FROM discovered_jobs")
+        c.execute("DROP TABLE discovered_jobs")
+        c.execute("ALTER TABLE discovered_jobs_new RENAME TO discovered_jobs")
+
+    c.execute("CREATE INDEX IF NOT EXISTS idx_discovered_jobs_hc_id ON discovered_jobs(hc_id)")
+
     # Add job_type to resumes if not present
     try:
         c.execute("ALTER TABLE resumes ADD COLUMN job_type TEXT")
@@ -575,16 +626,25 @@ def get_all_tracked_urls() -> set:
 
 # ── discovered_jobs / scrape_runs ───────────────────────────────────────────────
 
-def upsert_discovered_job(data: dict, run_id: int = None) -> int:
+def upsert_discovered_job(data: dict, run_id: int = None, force_insert: bool = False, tags: list = None) -> tuple[int, bool]:
     """
     Insert a newly discovered job tagged with the batch (run_id) that found it,
     or — if this hc_id already exists from an earlier batch — just refresh
-    last_seen_at. run_id is never reassigned on an existing row, so each job
-    belongs to exactly one batch and never appears duplicated across batches.
+    last_seen_at. run_id is never reassigned on an existing row, so a normally-
+    upserted job belongs to exactly one batch and never appears duplicated
+    across batches.
+
+    force_insert=True skips the existing-row lookup and always inserts a new
+    row (with the given tags already set) even if the hc_id is a duplicate —
+    used when an analyst-tag match hits a posting some earlier batch already
+    discovered, so the match gets its own row attributed to this run instead
+    of mutating/hiding the original.
+
+    Returns (id, is_new) so callers can tell whether a fresh row was created.
     """
     locations = data.get("locations") or []
     conn = get_conn()
-    existing = conn.execute(
+    existing = None if force_insert else conn.execute(
         "SELECT id FROM discovered_jobs WHERE hc_id=?", (data["hc_id"],)
     ).fetchone()
     if existing:
@@ -594,14 +654,15 @@ def upsert_discovered_job(data: dict, run_id: int = None) -> int:
         )
         conn.commit()
         new_id = existing["id"]
+        is_new = False
     else:
         cur = conn.execute("""
             INSERT INTO discovered_jobs
                 (hc_id, company, job_title, job_type, locations, work_arrangement,
                  salary_min, salary_max, salary_currency, seniority_level, min_yoe,
                  job_category, job_link, job_source, summary, raw_text, date_posted,
-                 search_query, search_location, phase2_status, run_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 search_query, search_location, phase2_status, run_id, tags)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             data["hc_id"], data.get("company"), data.get("job_title"), data.get("job_type"),
             json.dumps(locations), data.get("work_arrangement"),
@@ -609,12 +670,13 @@ def upsert_discovered_job(data: dict, run_id: int = None) -> int:
             data.get("seniority_level"), data.get("min_yoe"), data.get("job_category"),
             data.get("job_link"), data.get("job_source"), data.get("summary"), data.get("raw_text"),
             data.get("date_posted"), data.get("search_query"), data.get("search_location"),
-            data.get("phase2_status", "pending"), run_id,
+            data.get("phase2_status", "pending"), run_id, json.dumps(tags or []),
         ))
         conn.commit()
         new_id = cur.lastrowid
+        is_new = True
     conn.close()
-    return new_id
+    return new_id, is_new
 
 
 def update_discovered_job_enrichment(job_id: int, data: dict, phase2_status: str, phase2_error: str = None):
@@ -633,11 +695,16 @@ def update_discovered_job_enrichment(job_id: int, data: dict, phase2_status: str
     conn.close()
 
 
-def get_discovered_jobs(include_dismissed: bool = False) -> pd.DataFrame:
+def get_discovered_jobs(include_dismissed: bool = False, run_id: int = None) -> pd.DataFrame:
     conn = get_conn()
-    where = "" if include_dismissed else "WHERE dismissed=0"
+    clauses = [] if include_dismissed else ["dismissed=0"]
+    params = []
+    if run_id is not None:
+        clauses.append("run_id=?")
+        params.append(run_id)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     df = pd.read_sql_query(
-        f"SELECT * FROM discovered_jobs {where} ORDER BY discovered_at DESC", conn
+        f"SELECT * FROM discovered_jobs {where} ORDER BY discovered_at DESC", conn, params=params
     )
     conn.close()
     if not df.empty:
@@ -647,8 +714,16 @@ def get_discovered_jobs(include_dismissed: bool = False) -> pd.DataFrame:
 
 
 def dismiss_discovered_job(job_id: int):
+    """Dismisses every row sharing this job's hc_id, not just this row — since
+    force_insert can leave the same posting as more than one row (e.g. an
+    analyst-tagged duplicate of an already-discovered job), applying to or
+    dismissing any one copy must hide all of them everywhere."""
     conn = get_conn()
-    conn.execute("UPDATE discovered_jobs SET dismissed=1 WHERE id=?", (job_id,))
+    conn.execute(
+        "UPDATE discovered_jobs SET dismissed=1 "
+        "WHERE hc_id = (SELECT hc_id FROM discovered_jobs WHERE id=?)",
+        (job_id,),
+    )
     conn.commit()
     conn.close()
 

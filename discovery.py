@@ -72,8 +72,8 @@ def run_analyst_discovery(days: int = DATE_WINDOW_DAYS):
                 continue
             seen_hc_ids.add(normalized["hc_id"])
             normalized["search_query"] = analyst_cfg["search_query"]
-            job_id = db.upsert_discovered_job(normalized, run_id=run_id)
-            candidates.append({**normalized, "id": job_id})
+            job_id, is_new = db.upsert_discovered_job(normalized, run_id=run_id)
+            candidates.append({**normalized, "id": job_id, "is_new": is_new})
 
         db.update_scrape_run(run_id, combos_done=i + 1, jobs_found=len(candidates))
         yield {"type": "combo_done", "label": loc_label, "n": i + 1, "total": total_locations}
@@ -94,10 +94,19 @@ def run_analyst_discovery(days: int = DATE_WINDOW_DAYS):
             continue
         if is_match:
             tags = sorted({*(job.get("tags") or []), analyst_cfg["tag"]})
-            db.update_discovered_job_tags(job["id"], tags)
+            if job.get("is_new"):
+                # This row was inserted fresh for this run — safe to tag in place.
+                db.update_discovered_job_tags(job["id"], tags)
+                final_id = job["id"]
+            else:
+                # An earlier batch already discovered this posting; tagging that
+                # row in place would leave the match hidden under the wrong
+                # (stale) batch, since run_id is never reassigned. Insert this
+                # run's own tagged copy instead of touching the original.
+                final_id, _ = db.upsert_discovered_job(job, run_id=run_id, force_insert=True, tags=tags)
             matched += 1
             db.update_scrape_run(run_id, jobs_new=matched)
-            yield {"type": "matched", "data": {**job, "tags": tags}}
+            yield {"type": "matched", "data": {**job, "id": final_id, "tags": tags}}
 
     db.finish_scrape_run(run_id, status="done")
     yield {"type": "done", "run_id": run_id, "candidates_found": total_candidates, "jobs_matched": matched}
@@ -188,7 +197,7 @@ def run_discovery():
 
             jobs_found_total += 1
             is_new = normalized["hc_id"] not in known_hc_ids
-            job_id = db.upsert_discovered_job(normalized, run_id=run_id)
+            job_id, _ = db.upsert_discovered_job(normalized, run_id=run_id)
 
             if is_new:
                 known_hc_ids.add(normalized["hc_id"])
