@@ -1,4 +1,5 @@
 """One-shot backfill: fetch raw_text via Jina for job_applications missing it."""
+import os
 import sqlite3
 import httpx
 import time
@@ -7,12 +8,29 @@ DB_PATH = "job_tracker.db"
 JINA_BASE = "https://r.jina.ai/"
 RAW_TEXT_MAX = 80_000
 
+
+def _jina_key() -> str | None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        row = conn.execute("SELECT value FROM app_settings WHERE key='jina_api_key'").fetchone()
+        conn.close()
+        if row and row[0]:
+            return row[0].strip()
+    except Exception:
+        pass
+    return (os.environ.get("JINA_API_KEY") or "").strip() or None
+
+
 def fetch_via_jina(url: str) -> str | None:
     try:
+        headers = {"Accept": "text/plain", "X-Return-Format": "text"}
+        key = _jina_key()
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
         resp = httpx.get(
             f"{JINA_BASE}{url}",
             timeout=30,
-            headers={"Accept": "text/plain", "X-Return-Format": "text"},
+            headers=headers,
             follow_redirects=True,
         )
         if resp.status_code == 200 and len(resp.text.strip()) > 100:

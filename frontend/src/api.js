@@ -30,6 +30,8 @@ async function uploadFile(path, formData) {
 
 export const api = {
   config: () => request('GET', '/config'),
+  settings: () => request('GET', '/settings'),
+  updateSettings: (data) => request('PUT', '/settings', data),
   applications: (status) => request('GET', `/applications${status ? `?status=${status}` : ''}`),
   createApplication: (data) => request('POST', '/applications', data),
   updateStatus: (id, status) => request('PATCH', `/applications/${id}/status`, { status }),

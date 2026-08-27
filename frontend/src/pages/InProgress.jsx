@@ -297,17 +297,16 @@ function EditModal({ app, onSave, onCancel }) {
             <textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={3} />
           </div>
 
-          {form.raw_text && (
-            <div className="form-group full">
-              <label>Full Job Description</label>
-              <textarea
-                value={form.raw_text}
-                readOnly
-                rows={12}
-                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-muted)', resize: 'vertical' }}
-              />
-            </div>
-          )}
+          <div className="form-group full">
+            <label>Full Job Description</label>
+            <textarea
+              value={form.raw_text}
+              onChange={e => set('raw_text', e.target.value)}
+              rows={12}
+              placeholder="Paste or edit the full job description here…"
+              style={{ fontFamily: 'monospace', fontSize: '0.75rem', resize: 'vertical' }}
+            />
+          </div>
         </div>
 
         <CommunicationsPanel applicationId={app.id} />

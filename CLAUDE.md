@@ -18,6 +18,8 @@ Frontend at http://localhost:5173, API at http://localhost:8000. Vite proxies `/
 
 Requires `ANTHROPIC_API_KEY` env var for AI job extraction (scraper fallback; optional — app works without it).
 
+**Jina Reader API key:** keyless `r.jina.ai` requests are now rate limited / IP-blocked (HTTP 403 "malicious requests"). Set a key in the GUI (Scraper Log page → "Jina Reader API Key") — stored in `app_settings.jina_api_key`, read by `scraper._jina_key()` (falls back to the `JINA_API_KEY` env var), and sent as `Authorization: Bearer`. Blocked attempts (403/429/451) are logged distinctly and surfaced in a dedicated section on the Scraper Log page.
+
 ## Frontend build
 
 ```bash
@@ -44,11 +46,12 @@ npm run preview    # preview production build
 
 **Database** (`job_tracker.db` — SQLite, in repo root, not committed):
 
-Four tables:
+Tables:
 - `job_applications` — completed/tracked applications (company, title, status, dates, salary, location)
 - `todo_applications` — pending queue; `move_todo_to_applied()` atomically transfers a row into `job_applications`
 - `scraper_log` — one row per extraction attempt (method: `jina`, `playwright`, or `manual_text`; success, latency_ms, error)
 - `notes` — freeform markdown notes (title, content)
+- `app_settings` — key/value store for GUI-editable runtime config (currently `jina_api_key`); helpers `db.get_setting()` / `db.set_setting()`
 
 **`locations` storage:** Stored as a JSON string (`'[{"city":"…","state":"…"}]'`) in SQLite for both `job_applications` and `todo_applications`. Every `db.py` read deserializes it with `json.loads`; every write serializes with `json.dumps`. Raw SQL queries against these tables must handle this manually.
 

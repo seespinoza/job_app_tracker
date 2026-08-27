@@ -169,6 +169,13 @@ def init_db():
     """)
 
     c.execute("""
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS notes (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             title      TEXT NOT NULL DEFAULT 'Untitled',
@@ -1110,6 +1117,28 @@ def update_analyst_config(tag: str = None, search_query: str = None, prompt_temp
     finally:
         conn.close()
     return get_analyst_config()
+
+
+# ── app_settings (key/value) ─────────────────────────────────────────────────
+# Small free-form store for runtime config the user edits in the GUI rather than
+# via env vars — currently just the Jina Reader API key (see scraper._jina_key).
+
+def get_setting(key: str, default: str | None = None) -> str | None:
+    conn = get_conn()
+    row = conn.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+    conn.close()
+    return row["value"] if row and row["value"] is not None else default
+
+
+def set_setting(key: str, value: str | None) -> None:
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
 
 
 init_db()

@@ -174,6 +174,28 @@ def classify_analyst_job(job: dict, prompt_template: str) -> tuple[bool, float]:
     return answer.startswith("y"), latency
 
 
+def _jina_key() -> str | None:
+    """Jina Reader API key, GUI setting (app_settings.jina_api_key) first, then
+    the JINA_API_KEY env var. Keyless requests to r.jina.ai are now heavily rate
+    limited / IP-blocked ('malicious requests' 403), so supplying one is what
+    keeps the primary fetch path working."""
+    key = None
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from db import get_setting
+        key = get_setting("jina_api_key")
+    except Exception:
+        pass
+    return (key or os.environ.get("JINA_API_KEY") or "").strip() or None
+
+
+# HTTP statuses that mean "the request was refused / the IP is blocked" rather
+# than "the page is missing" — surfaced distinctly in the scraper log so the
+# user can tell an IP block apart from an ordinary scrape miss.
+_BLOCKED_STATUSES = {401, 403, 429, 451}
+
+
 def _log(url: str, method: str, success: bool, latency_ms: int, error: str = None):
     try:
         import sys
@@ -206,16 +228,25 @@ def _fetch_page_text(url: str) -> tuple[str | None, str | None]:
     # ── Jina Reader ───────────────────────────────────────────────────────────
     start = time.time()
     try:
+        headers = {"Accept": "text/plain", "X-Return-Format": "text"}
+        key = _jina_key()
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
         resp = httpx.get(
             f"{JINA_BASE}{url}",
             timeout=20,
-            headers={"Accept": "text/plain", "X-Return-Format": "text"},
+            headers=headers,
             follow_redirects=True,
         )
         latency = int((time.time() - start) * 1000)
         if resp.status_code == 200 and len(resp.text.strip()) > 100:
             _log(url, "jina", True, latency)
             return resp.text, None
+        elif resp.status_code in _BLOCKED_STATUSES:
+            hint = (" — add a Jina API key on the Scraper Log page to fix this"
+                    if not key else " — the Jina API key may be invalid or out of quota")
+            _log(url, "jina", False, latency,
+                 f"HTTP {resp.status_code} blocked (IP flagged / rate limited){hint}")
         else:
             _log(url, "jina", False, latency, f"HTTP {resp.status_code} or empty body")
     except Exception as e:

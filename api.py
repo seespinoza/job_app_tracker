@@ -91,6 +91,10 @@ class ExtractRequest(BaseModel):
     url: str
 
 
+class SettingsUpdate(BaseModel):
+    jina_api_key: Optional[str] = None
+
+
 class ExtractTextRequest(BaseModel):
     text: str
 
@@ -195,6 +199,18 @@ def get_config():
         "comm_platforms": db.COMM_PLATFORMS,
         "comm_directions": db.COMM_DIRECTIONS,
     }
+
+
+@app.get("/api/settings")
+def get_settings():
+    return {"jina_api_key": db.get_setting("jina_api_key") or ""}
+
+
+@app.put("/api/settings")
+def update_settings(body: SettingsUpdate):
+    if body.jina_api_key is not None:
+        db.set_setting("jina_api_key", body.jina_api_key.strip())
+    return {"jina_api_key": db.get_setting("jina_api_key") or ""}
 
 
 @app.get("/api/applications")
