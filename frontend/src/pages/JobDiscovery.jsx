@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { api } from '../api'
 import MetricCard from '../components/MetricCard'
+import AppliedBadge, { normalizeCompany } from '../components/AppliedBadge'
 
 const TODAY = new Date().toISOString().split('T')[0]
 
@@ -235,7 +236,8 @@ function TagEditor({ job, onUpdateTags }) {
   )
 }
 
-function JobCard({ job, onSaveTodo, onSaveApplied, onDismiss, onUpdateTags, onResolveMissing }) {
+function JobCard({ job, appliedCompanies, onSaveTodo, onSaveApplied, onDismiss, onUpdateTags, onResolveMissing }) {
+  const appliedCount = job.company ? (appliedCompanies?.get(normalizeCompany(job.company)) || 0) : 0
   const [state, setState] = useState('pending') // pending | saving | todo | applied | error | needs_info
   const [missingFields, setMissingFields] = useState([])
   const [applyDate, setApplyDate] = useState(TODAY)
@@ -279,8 +281,9 @@ function JobCard({ job, onSaveTodo, onSaveApplied, onDismiss, onUpdateTags, onRe
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.15rem' }}>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
             {job.company || <span style={{ color: 'var(--text-muted)' }}>Unknown Company</span>}
+            {appliedCount > 0 && <AppliedBadge company={job.company} count={appliedCount} />}
           </div>
           <div style={{ fontSize: '0.88rem', marginBottom: '0.35rem', display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
             {job.job_title || <span style={{ color: 'var(--text-muted)' }}>—</span>}
@@ -703,6 +706,9 @@ function DiscoverySettingsPanel({
 
 export default function JobDiscovery() {
   const [jobs, setJobs] = useState([])
+  // normalizeCompany(name) -> how many times you've applied to that company, so
+  // discovered jobs can show a "already in your tracker" Pokéball next to the name.
+  const [appliedCompanies, setAppliedCompanies] = useState(() => new Map())
   const [resolveModal, setResolveModal] = useState(null) // { job, date_applied, missingFields, company, job_title }
   const [resolveSaving, setResolveSaving] = useState(false)
   const [resolveError, setResolveError] = useState(null)
@@ -775,6 +781,14 @@ export default function JobDiscovery() {
     api.discoveryTracks().then(setTracks).catch(() => {})
     api.discoveryLocations().then(setLocations).catch(() => {})
     api.getAnalystConfig().then(setAnalystConfig).catch(() => {})
+    api.applications().then(list => {
+      const counts = new Map()
+      for (const a of list) {
+        const key = normalizeCompany(a.company)
+        if (key) counts.set(key, (counts.get(key) || 0) + 1)
+      }
+      setAppliedCompanies(counts)
+    }).catch(() => {})
   }, [])
 
   // Batch filter changes require a re-fetch, since only the current batch's jobs
@@ -1375,6 +1389,7 @@ export default function JobDiscovery() {
                 <JobCard
                   key={job.id ?? `${job.job_link || ''}-${i}`}
                   job={job}
+                  appliedCompanies={appliedCompanies}
                   onSaveTodo={handleSaveTodo}
                   onSaveApplied={handleSaveApplied}
                   onDismiss={handleDismiss}
@@ -1446,6 +1461,7 @@ export default function JobDiscovery() {
                 <JobCard
                   key={job.id ?? `${job.job_link || ''}-${i}`}
                   job={job}
+                  appliedCompanies={appliedCompanies}
                   onSaveTodo={handleSaveTodo}
                   onSaveApplied={handleSaveApplied}
                   onDismiss={handleDismiss}

@@ -2,6 +2,37 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Installation
+
+Full step-by-step guide with per-OS commands and troubleshooting: **[SETUP.md](SETUP.md)**. Quick version below.
+
+**Prerequisites:** Python 3.11+, Node.js 18+, git.
+
+**Windows, no terminal:** double-click [`windows/setup_and_run.bat`](windows/setup_and_run.bat) — it installs Python/Node if missing, sets everything up, and launches both servers. Everything below is the manual path.
+
+```bash
+git clone <repo-url>
+cd job_app_tracker
+
+# 1. Python backend
+python3 -m venv .venv
+source .venv/bin/activate            # Windows (PowerShell): .venv\Scripts\activate
+pip install -r requirements.txt
+
+# 2. Playwright browser — optional fallback scraper for sites that block Jina Reader
+playwright install chromium          # ~150 MB; skip if unsure, add later
+
+# 3. Frontend
+cd frontend && npm install && cd ..
+```
+
+**API keys — both optional, the app runs without either:**
+
+- `ANTHROPIC_API_KEY` — enables AI job extraction (paste a job URL/text → structured fields auto-fill). Put it in a `.env` file in the repo root: `ANTHROPIC_API_KEY=sk-ant-...` ([get one](https://console.anthropic.com/keys)).
+- **Jina Reader key** — keyless `r.jina.ai` requests are now rate limited / IP-blocked (HTTP 403 "malicious requests"). Add a key in the running app under **Scraper Log → Jina Reader API Key** ([get one](https://jina.ai/reader)); it's stored in the local database. Or set a `JINA_API_KEY` env var instead.
+
+The SQLite database (`job_tracker.db`) is created automatically on first run — no migration step.
+
 ## Running the App
 
 Two processes must run simultaneously:
@@ -18,7 +49,7 @@ cd frontend && npm run dev
 
 Frontend at http://localhost:5173, API at http://localhost:8000. Vite proxies `/api/*` → backend automatically.
 
-Requires `ANTHROPIC_API_KEY` env var for AI job extraction (scraper fallback; optional — app works without it).
+API keys (`ANTHROPIC_API_KEY`, Jina Reader) are optional — see [Installation](#installation).
 
 ## Frontend build
 

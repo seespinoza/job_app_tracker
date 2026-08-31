@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { ComposableMap, Geographies, Geography } from 'react-simple-maps'
 import { scaleLinear } from 'd3-scale'
 import { api } from '../api'
 import MetricCard from '../components/MetricCard'
 import CommunicationsPanel from '../components/CommunicationsPanel'
+import AppliedBadge, { normalizeCompany } from '../components/AppliedBadge'
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json'
 
@@ -351,6 +352,18 @@ export default function InProgress() {
     api.todos().then(setTodos).catch(console.error)
   }, [])
 
+  // normalizeCompany(name) -> total applications logged at that company (across
+  // every status). Every applied company gets a Pokéball; the count feeds the
+  // tooltip ("applied N times") — a cue you likely already have an account there.
+  const companyCounts = useMemo(() => {
+    const counts = new Map()
+    for (const a of allApps) {
+      const key = normalizeCompany(a.company)
+      if (key) counts.set(key, (counts.get(key) || 0) + 1)
+    }
+    return counts
+  }, [allApps])
+
   const totalActive = allApps.filter(a => !['declined', 'inactive'].includes(a.status))
   const totalInterviewing = allApps.filter(a => a.status === 'interviewing')
   const totalOffers = allApps.filter(a => a.status === 'offer')
@@ -534,7 +547,12 @@ export default function InProgress() {
                         <td><AgeBadge days={daysSince(a.date_applied)} /></td>
                         <td><AgeBadge days={daysSince(a.date_posted)} /></td>
                         <td>
-                          <strong>{a.company}</strong>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <strong>{a.company}</strong>
+                            {companyCounts.get(normalizeCompany(a.company)) > 0 && (
+                              <AppliedBadge company={a.company} count={companyCounts.get(normalizeCompany(a.company))} />
+                            )}
+                          </span>
                           {a.org_team && <div className="text-muted">{a.org_team}</div>}
                         </td>
                         <td>{a.job_title}</td>
