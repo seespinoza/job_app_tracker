@@ -468,7 +468,7 @@ export default function InProgress() {
             <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
               {STATUS_OPTIONS.map(s => (
                 <FilterChip key={s} label={s} active={statusFilter.includes(s)}
-                  onClick={() => setStatusFilter(prev => toggleItem(prev, s))} />
+                  onClick={() => setStatusFilter(prev => prev.includes(s) ? [] : [s])} />
               ))}
             </div>
           </div>
