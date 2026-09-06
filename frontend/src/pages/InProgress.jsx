@@ -339,6 +339,17 @@ export default function InProgress() {
   const [editingApp, setEditingApp]     = useState(null)
   const [sort, setSort]                 = useState({ key: 'date_applied', dir: 'desc' })
   const [expandedIds, setExpandedIds]   = useState(new Set())
+  const [hideStale, setHideStale]       = useState(() => {
+    try { return localStorage.getItem('hideStaleAlerts') !== '0' } catch { return true }
+  })
+
+  function toggleHideStale() {
+    setHideStale(prev => {
+      const next = !prev
+      try { localStorage.setItem('hideStaleAlerts', next ? '1' : '0') } catch { /* ignore */ }
+      return next
+    })
+  }
 
   const load = useCallback(() => {
     const sf = statusFilter.length ? statusFilter.join(',') : null
@@ -457,9 +468,22 @@ export default function InProgress() {
         <MetricCard label="To-Do Queue"    value={todos.length}             color="#64748b" />
       </div>
 
-      {stale90.length > 0 && <div className="alert alert-danger">🔴 <strong>{stale90.length} stale 90+ days:</strong> {stale90.map(a => a.company).join(', ')}</div>}
-      {stale60.length > 0 && <div className="alert alert-warning">🟠 <strong>{stale60.length} stale 60–89 days:</strong> {stale60.map(a => a.company).join(', ')}</div>}
-      {stale30.length > 0 && <div className="alert alert-warning" style={{ background: '#fefce8', borderColor: '#fde68a', color: '#854d0e' }}>🟡 <strong>{stale30.length} stale 30–59 days:</strong> {stale30.map(a => a.company).join(', ')}</div>}
+      {(stale90.length > 0 || stale60.length > 0 || stale30.length > 0) && (
+        <div style={{ marginBottom: '1rem' }}>
+          <button className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={toggleHideStale}>
+            {hideStale
+              ? `Show stale notifications (${stale90.length + stale60.length + stale30.length})`
+              : 'Hide stale notifications'}
+          </button>
+        </div>
+      )}
+      {!hideStale && (
+        <>
+          {stale90.length > 0 && <div className="alert alert-danger">🔴 <strong>{stale90.length} stale 90+ days:</strong> {stale90.map(a => a.company).join(', ')}</div>}
+          {stale60.length > 0 && <div className="alert alert-warning">🟠 <strong>{stale60.length} stale 60–89 days:</strong> {stale60.map(a => a.company).join(', ')}</div>}
+          {stale30.length > 0 && <div className="alert alert-warning" style={{ background: '#fefce8', borderColor: '#fde68a', color: '#854d0e' }}>🟡 <strong>{stale30.length} stale 30–59 days:</strong> {stale30.map(a => a.company).join(', ')}</div>}
+        </>
+      )}
 
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
